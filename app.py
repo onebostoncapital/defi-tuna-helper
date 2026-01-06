@@ -2,12 +2,11 @@ import ccxt
 import pandas as pd
 import streamlit as st
 
-# This function ensures data is refreshed every 60 seconds
+# Refresh data every 60 seconds
 @st.cache_data(ttl=60)
 def fetch_live_sol_data():
     try:
         exchange = ccxt.kraken()
-        # Fetching fresh Daily (1d) data for SOL/USD
         bars = exchange.fetch_ohlcv('SOL/USD', timeframe='1d', limit=30)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         return df
@@ -17,86 +16,93 @@ def fetch_live_sol_data():
 def get_sreejan_forecaster():
     st.set_page_config(page_title="Sreejan Range Forecaster", page_icon="📈", layout="wide")
     st.title("🏦 Sreejan Range Forecaster")
-    st.markdown("### Interactive Leveraged Yield Strategy for SOL/USD")
+    st.markdown("### Interactive Leveraged Yield Strategy for $SOL/USD")
 
-    # --- SIDEBAR SETTINGS ---
+    # --- SIDEBAR: INPUTS ---
     st.sidebar.header("💰 Investment Settings")
-    capital = 10000  # Fixed $10,000 Capital
-    st.sidebar.write(f"Initial Capital: **${capital:,.0f}**")
+    capital = 10000 
     
-    # LEVERAGE SLIDER
+    # 1. Leverage Slider
     lev_choice = st.sidebar.select_slider(
         "Select Leverage", 
         options=[1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0],
         value=1.5
     )
     
-    # NEWS & SENTIMENT
+    # 2. Market Sentiment
     st.sidebar.divider()
     st.sidebar.header("🌍 Market Sentiment")
     btc_trend = st.sidebar.selectbox("Bitcoin Trend", ["Bullish 🚀", "Neutral ⚖️", "Bearish 📉"])
-    geo_news = st.sidebar.selectbox("Global News", ["Positive", "Uncertain", "Negative"])
-
-    # --- CALCULATION LOGIC ---
-    df = fetch_live_sol_data()
     
+    # --- DATA & MATH ---
+    df = fetch_live_sol_data()
     if df is not None:
-        # ATR Volatility Calculation
+        price = df['close'].iloc[-1]
         df['tr'] = df[['high', 'low', 'close']].max(axis=1) - df[['high', 'low', 'close']].min(axis=1)
         atr = df['tr'].rolling(window=14).mean().iloc[-1]
-        price = df['close'].iloc[-1]
-        
-        # Predictive Multiplier based on News
-        multiplier = 2.5
-        if btc_trend == "Bearish 📉" or geo_news == "Negative":
-            multiplier = 3.5  # Wider range for safety
-            st.sidebar.warning("Model: Bearish news detected. Range widened.")
-        elif btc_trend == "Bullish 🚀":
-            multiplier = 2.0  # Tighter range for more fees
-            st.sidebar.success("Model: Bullish trend detected. Range tightened.")
 
-        # Range Bounds
-        low_bound = price - (atr * multiplier)
-        high_bound = price + (atr * multiplier)
+        # Recommended Multiplier Logic
+        multiplier = 3.0 if btc_trend == "Bearish 📉" else 2.0 if btc_trend == "Bullish 🚀" else 2.5
+        rec_low = price - (atr * multiplier)
+        rec_high = price + (atr * multiplier)
+
+        # --- MAIN PANEL: MANUAL RANGE SLIDER ---
+        st.subheader("🛠️ Manual Range Adjustment")
+        st.write("Adjust the sliders below to set your own custom price boundaries and see how it affects profit.")
         
-        # Liquidation Math (Estimated for SOL at specific leverage)
-        # Formula: Price * (1 - (1/Leverage) * Margin_Buffer)
-        if lev_choice > 1.0:
-            liq_price = price * (1 - (1 / lev_choice) * 0.45) 
-        else:
-            liq_price = 0
-            
-        # Profit Projections (Estimated 0.15% base daily yield on position size)
+        # Manual Price Slider (Allows +/- 50% of current price)
+        min_p = float(price * 0.5)
+        max_p = float(price * 1.5)
+        manual_range = st.slider(
+            "Select Manual Price Range ($)",
+            min_value=min_p,
+            max_value=max_p,
+            value=(float(rec_low), float(rec_high)),
+            step=0.50,
+            format="$%.2f"
+        )
+        
+        m_low, m_high = manual_range
+        range_width = m_high - m_low
+
+        # --- CALCULATIONS ---
         position_size = capital * lev_choice
-        daily_profit = position_size * 0.0018  # 0.18% average daily fee
+        # Fee logic: Tighter ranges earn more fees. 
+        # Base assumption: 0.20% daily on a standard ATR range.
+        efficiency_factor = (price * 0.4) / range_width # Tighter = higher factor
+        daily_profit = (position_size * 0.0018) * efficiency_factor
         weekly_profit = daily_profit * 7
+        
+        # Liquidation
+        liq_price = price * (1 - (1 / lev_choice) * 0.45) if lev_choice > 1.0 else 0
 
-        # --- MAIN DASHBOARD DISPLAY ---
+        # --- DISPLAY RESULTS ---
+        st.divider()
         col1, col2, col3 = st.columns(3)
         col1.metric("Live SOL Price", f"${price:,.2f}")
-        col2.metric("Total Position", f"${position_size:,.2f}", f"{lev_choice}x Leverage")
+        col2.metric("Total Position", f"${position_size:,.0f}", f"{lev_choice}x Leverage")
         col3.metric("Liq. Price", f"${liq_price:,.2f}" if liq_price > 0 else "SAFE")
 
+        st.success(f"### 📈 Estimated Weekly Profit: ${weekly_profit:,.2f}")
+        st.write(f"Estimated Daily: ${daily_profit:,.2f}")
+
+        # COMPARE SECTION
         st.divider()
-
-        # PROFIT SECTION
-        st.subheader("📊 Projected Earnings (Fees)")
-        p_col1, p_col2 = st.columns(2)
-        p_col1.success(f"**Estimated Daily Profit:** ${daily_profit:,.2f}")
-        p_col2.success(f"**Estimated Weekly Profit:** ${weekly_profit:,.2f}")
-
-        # RANGE RECOMMENDATION
-        st.subheader("🎯 Recommended Range Settings")
-        st.info(f"Set your DefiTuna range to: **${low_bound:,.2f} — ${high_bound:,.2f}**")
-        
-        # SAFETY ALERTS
-        if liq_price > 0 and low_bound < liq_price:
-            st.error(f"🚨 **DANGER:** Your lower range (${low_bound:,.2f}) is below your Liquidation Price (${liq_price:,.2f}). If the price hits your lower bound, you are at extreme risk. Please lower your leverage or widen the range.")
-        elif liq_price > 0:
-            st.warning(f"🛡️ **Safety Buffer:** You have a ${low_bound - liq_price:,.2f} cushion between your range floor and liquidation.")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("#### ✅ Sreejan Recommended")
+            st.write(f"Lower: **${rec_low:,.2f}**")
+            st.write(f"Upper: **${rec_high:,.2f}**")
+        with c2:
+            st.markdown("#### ✍️ Your Manual Selection")
+            st.write(f"Lower: **${m_low:,.2f}**")
+            st.write(f"Upper: **${m_high:,.2f}**")
             
+        if liq_price > 0 and m_low < liq_price:
+            st.error(f"🚨 **WARNING:** Your manual Lower Bound (${m_low:,.2f}) is below Liquidation (${liq_price:,.2f})!")
+
     else:
-        st.error("Failed to connect to exchange. Please check your internet or refresh the page.")
+        st.error("Connection lost. Please refresh the page.")
 
 if __name__ == "__main__":
     get_sreejan_forecaster()
