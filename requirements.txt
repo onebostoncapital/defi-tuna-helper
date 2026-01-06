@@ -1,3 +1,5 @@
 ccxt
 pandas
-streamlit
+plotly
+requests
+numpy
