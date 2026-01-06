@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 def fetch_sol_market_data():
     try:
         exchange = ccxt.kraken()
-        # Fetch 30 days of data for ATR and Charting
+        # Fetch 35 days to ensure we have enough for a 14-day ATR calculation
         bars = exchange.fetch_ohlcv('SOL/USD', timeframe='1d', limit=35)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['date'] = pd.to_datetime(df['timestamp'], unit='ms')
@@ -30,7 +30,7 @@ def fetch_crypto_news():
         return []
 
 def get_sreejan_forecaster():
-    # PAGE CONFIG (Favicon set to Solana Emoji and Title)
+    # PAGE CONFIG (Favicon set to Solana Purple Circle)
     st.set_page_config(
         page_title="Sreejan Range Forecaster", 
         page_icon="🟣", 
@@ -42,8 +42,10 @@ def get_sreejan_forecaster():
 
     # --- SIDEBAR: INPUTS ---
     st.sidebar.header("💰 Investment Settings")
-    capital = st.sidebar.number_input("Enter Investment Amount ($)", min_value=10.0, value=10000.0)
+    # FREE FORM MANUAL INPUT
+    capital = st.sidebar.number_input("Enter Investment Amount ($)", min_value=10.0, value=10000.0, step=100.0)
     
+    # LEVERAGE DOT SLIDER
     leverage_options = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
     lev_choice = st.sidebar.select_slider("Select Leverage", options=leverage_options, value=1.5)
     
@@ -60,10 +62,9 @@ def get_sreejan_forecaster():
         atr = df['tr'].rolling(window=14).mean().iloc[-1]
 
         # 3. FORECASTING LOGIC (Next 5 Days)
-        # Simple Linear Drift + ATR Volatility for projection
         last_date = df['date'].iloc[-1]
         forecast_dates = [last_date + timedelta(days=i) for i in range(1, 6)]
-        trend_adj = 1.02 if btc_trend == "Bullish 🚀" else 0.98 if btc_trend == "Bearish 📉" else 1.0
+        trend_adj = 1.015 if btc_trend == "Bullish 🚀" else 0.985 if btc_trend == "Bearish 📉" else 1.0
         forecast_prices = [price * (trend_adj ** i) for i in range(1, 6)]
         
         # --- TOP METRICS ---
@@ -77,24 +78,19 @@ def get_sreejan_forecaster():
 
         st.divider()
 
-        # --- CHARTING & TABLES ---
+        # --- CHARTING ---
         st.subheader("📊 Price History (Last 5 Days) & Forecast (Next 5 Days)")
         
-        # Prepare Data for Chart
         hist_5 = df.tail(5).copy()
         forecast_df = pd.DataFrame({'date': forecast_dates, 'close': forecast_prices, 'type': 'Forecast'})
-        hist_5['type'] = 'History'
-        combined_data = pd.concat([hist_5[['date', 'close', 'type']], forecast_df])
-
+        
         fig = go.Figure()
-        # History Line
-        fig.add_trace(go.Scatter(x=hist_5['date'], y=hist_5['close'], mode='lines+markers', name='History', line=dict(color='purple', width=4)))
-        # Forecast Line
-        fig.add_trace(go.Scatter(x=forecast_df['date'], y=forecast_df['close'], mode='lines+markers', name='Forecast', line=dict(color='cyan', width=4, dash='dash')))
-        fig.update_layout(template="plotly_dark", height=400, margin=dict(l=20, r=20, t=20, b=20))
+        fig.add_trace(go.Scatter(x=hist_5['date'], y=hist_5['close'], mode='lines+markers', name='History', line=dict(color='#854CE6', width=4)))
+        fig.add_trace(go.Scatter(x=forecast_df['date'], y=forecast_df['close'], mode='lines+markers', name='Forecast', line=dict(color='#00FFA3', width=4, dash='dash')))
+        fig.update_layout(template="plotly_dark", height=400, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
-        # Table Display
+        # Tables
         t1, t2 = st.columns(2)
         with t1:
             st.write("**Last 5 Days History**")
@@ -110,38 +106,18 @@ def get_sreejan_forecaster():
         multiplier = 3.2 if btc_trend == "Bearish 📉" else 2.2 if btc_trend == "Bullish 🚀" else 2.7
         rec_low, rec_high = price - (atr * multiplier), price + (atr * multiplier)
         
+        # BOLD AUTO RANGE ABOVE MANUAL
         st.markdown(f"**Sreejan's Auto-Generated Range: ${rec_low:,.2f} — ${rec_high:,.2f}**")
         
         manual_range = st.slider("Manual Range Selection", min_value=float(price*0.5), max_value=float(price*1.5), value=(float(rec_low), float(rec_high)), step=0.50)
         m_low, m_high = manual_range
         
-        # PROFIT Projections
+        # PROFIT MATRIX
         efficiency = (price * 0.35) / (m_high - m_low)
         daily_profit = (position_size * 0.0017) * efficiency
         
         st.markdown(f"**Estimated Daily: ${daily_profit:,.2f}**")
         
-        p_cols = st.columns(4)
-        p_cols[0].write(f"1hr: **${daily_profit/24:,.2f}**")
-        p_cols[1].write(f"12hr: **${daily_profit/2:,.2f}**")
-        p_cols[2].write(f"1 Week: **${daily_profit*7:,.2f}**")
-        p_cols[3].write(f"1 Month: **${daily_profit*30:,.2f}**")
-
-        if liq_price > 0 and m_low < liq_price:
-            st.error(f"🚨 **DANGER:** Your manual Lower Bound (${m_low:,.2f}) is below Liquidation!")
-
-        # --- NEWS FOOTER ---
-        st.divider()
-        st.subheader("📰 Global News Scanner")
-        news_data = fetch_crypto_news()
-        if news_data:
-            news_cols = st.columns(len(news_data))
-            for i, article in enumerate(news_data):
-                with news_cols[i]:
-                    st.markdown(f"**[{article['title'][:45]}...]({article['url']})**")
-                    st.caption(f"{article['source']}")
-    else:
-        st.error("Connection failed. Check your internet or clear cache.")
-
-if __name__ == "__main__":
-    get_sreejan_forecaster()
+        # Time Horizon Grid
+        p1, p2, p3, p4, p5, p6 = st.columns(6)
+        p1.metric("1 hr", f"${daily_profit/24:,.2
