@@ -1,24 +1,62 @@
-import ccxt
 import pandas as pd
-import numpy as np
+import requests
+import time
 
-def fetch_base_data(timeframe='1d'):
+def fetch_base_data(interval="1h", symbol="SOLUSDT"):
+    """
+    The Heart of the Data Engine. 
+    Fetches SOL price data and BTC price for the dashboard.
+    """
+    base_url = "https://api.binance.com/api/v3/klines"
+    btc_url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+    
     try:
-        exchange = ccxt.kraken()
-        sol = exchange.fetch_ohlcv('SOL/USD', timeframe=timeframe, limit=300)
-        btc = exchange.fetch_ohlcv('BTC/USD', timeframe='1d', limit=1)
+        # 1. Fetch BTC Price for the Top Banner
+        btc_res = requests.get(btc_url).json()
+        btc_price = float(btc_res['price'])
         
-        df = pd.DataFrame(sol, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['date'] = pd.to_datetime(df['timestamp'], unit='ms')
+        # 2. Fetch SOL Candlestick Data
+        params = {
+            'symbol': symbol,
+            'interval': interval,
+            'limit': 300 # Enough to calculate a 200 SMA accurately
+        }
         
-        # Rule 1: Emmanuel Logic
+        res = requests.get(base_url, params=params).json()
+        
+        # 3. Process into a Clean Table
+        df = pd.DataFrame(res, columns=[
+            'time', 'open', 'high', 'low', 'close', 'volume', 
+            'close_time', 'qav', 'num_trades', 'taker_base', 'taker_quote', 'ignore'
+        ])
+        
+        # Convert columns to numbers
+        df['close'] = df['close'].astype(float)
+        df['open'] = df['open'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        
+        # Format the date for the chart
+        df['date'] = pd.to_datetime(df['time'], unit='ms')
+        
+        # 4. Emmanuel Strategy Calculations
+        # 20 Exponential Moving Average
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
+        
+        # 200 Simple Moving Average
         df['200_sma'] = df['close'].rolling(window=200).mean()
         
-        # Rule 3: Daily ATR for Range
-        df['tr'] = df[['high', 'low', 'close']].max(axis=1) - df[['high', 'low', 'close']].min(axis=1)
-        daily_atr = df['tr'].rolling(window=14).mean().iloc[-1]
+        return df, btc_price, None, True
         
-        return df, btc[0][4], daily_atr, True
+    except Exception as e:
+        print(f"Data Engine Error: {e}")
+        return None, 0, None, False
+
+def get_current_price(symbol="SOLUSDT"):
+    """Quick fetch for just the current price."""
+    url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+    try:
+        res = requests.get(url).json()
+        return float(res['price'])
     except:
-        return None, 0, 0, False
+        return 0.0
