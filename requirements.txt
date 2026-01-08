@@ -1,3 +1,7 @@
 pandas
 yfinance
 plotly
+driftpoint
+solana
+solders
+streamlit-autorefresh
