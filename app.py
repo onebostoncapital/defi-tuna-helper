@@ -5,7 +5,6 @@ import time, asyncio
 from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
-# Core Solana/Drift imports
 from solders.keypair import Keypair
 from driftpy.drift_client import DriftClient
 from driftpy.constants.numeric_constants import BASE_PRECISION
@@ -13,8 +12,8 @@ from driftpy.types import OrderType, PositionDirection, OrderParams
 from anchorpy import Wallet, Provider
 from solana.rpc.async_api import AsyncClient
 
-# 1. UI SETUP
-st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
+# 1. UI SETUP & 1S PULSE
+st.set_page_config(page_title="Sreejan Sentinel Pro (Drift)", layout="wide")
 st_autorefresh(interval=1000, key="ui_pulse")
 
 if 'last_market_update' not in st.session_state: st.session_state.last_market_update = time.time()
@@ -22,17 +21,16 @@ if 'trade_history' not in st.session_state: st.session_state.trade_history = []
 
 # 2. SIDEBAR
 with st.sidebar:
-    st.header("🔐 Drift Credentials")
-    rpc_url = st.text_input("Solana RPC URL", value="https://api.mainnet-beta.solana.com")
-    pk_base58 = st.text_input("Private Key (Base58)", type="password")
-    sub_id = st.number_input("Drift Sub-Account ID", value=0, step=1)
-    total_cap = st.number_input("Trading Capital ($)", value=1000.0)
-    auto_pilot = st.toggle("🚀 ENABLE AUTO-PILOT")
+    st.header("🔐 Drift Dashboard")
+    rpc_url = st.text_input("RPC URL", value="https://api.mainnet-beta.solana.com")
+    pk_base58 = st.text_input("Private Key", type="password")
+    sub_id = st.number_input("Sub-Account ID", value=0)
+    total_cap = st.number_input("Drift Equity ($)", value=1000.0)
+    auto_pilot = st.toggle("🚀 AUTO-PILOT")
     
     elapsed = time.time() - st.session_state.last_market_update
-    st.write(f"⏱️ Data Sync: {max(0, int(30 - elapsed))}s")
+    st.write(f"⏱️ Sync: {max(0, int(30 - elapsed))}s")
 
-# Auto-refresh logic
 if (time.time() - st.session_state.last_market_update) >= 30:
     st.session_state.last_market_update = time.time()
     st.cache_data.clear()
@@ -58,8 +56,14 @@ if status:
                 tr_shorts += 1
             else:
                 sig, clr, bg = "🟡 WAIT", "#888", "rgba(128,128,128,0.1)"
-                
-            mcols[i].markdown(f"<div style='border:1px solid {clr}; border-radius:5px; padding:10px; background-color:{bg}; text-align:center;'><b>{t}</b><br><span style='color:{clr}'>{sig}</span></div>", unsafe_allow_True=True)
+            
+            # FIXED: Corrected parameter to unsafe_allow_html
+            mcols[i].markdown(
+                f"<div style='border:1px solid {clr}; border-radius:5px; padding:10px; "
+                f"background-color:{bg}; text-align:center;'><b>{t}</b><br>"
+                f"<span style='color:{clr}'>{sig}</span></div>", 
+                unsafe_allow_html=True
+            )
 
     tr_count = max(tr_longs, tr_shorts)
     lev_map = {4: 2, 5: 3, 6: 4, 7: 5, 8: 5}
@@ -69,19 +73,18 @@ if status:
     fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="SOL")])
     fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6")))
     fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", dash='dot')))
-    fig.update_layout(template="plotly_dark", height=450, margin=dict(l=0,r=0,t=0,b=0))
+    fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=0,b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # 5. SAFE EXECUTION ENGINE
-    async def run_drift_trade(action_type, side=None, leverage=0):
-        if not pk_base58 or not rpc_url:
-            st.warning("Please enter RPC and Private Key in sidebar.")
-            return None
+    # 5. FIXED DRIFT ENGINE
+    async def run_drift_action(action_type, side=None, leverage=0):
+        if not pk_base58: return None
         try:
-            async_client = AsyncClient(rpc_url)
+            connection = AsyncClient(rpc_url)
             kp = Keypair.from_base58_string(pk_base58)
             wallet = Wallet(kp)
-            provider = Provider(async_client, wallet)
+            # FIX: Properly initialize Provider
+            provider = Provider(connection, wallet)
             client = DriftClient(provider.connection, provider.wallet, account_subscription="polling")
             await client.subscribe()
             
@@ -92,31 +95,27 @@ if status:
             else: # CLOSE ALL
                 params = OrderParams(order_type=OrderType.Market(), market_index=0, direction=PositionDirection.Long(), base_asset_amount=0, reduce_only=True)
             
-            sig = await client.place_perp_order(params, sub_account_id=int(sub_id))
-            await client.unsubscribe()
-            await async_client.close()
+            sig = await client.place_perp_order(params, sub_account_id=sub_id)
+            await client.unsubscribe(); await connection.close()
             return sig
         except Exception as e:
-            st.error(f"Drift Engine Error: {str(e)}")
-            return None
+            st.error(f"Drift Error: {e}"); return None
 
     # 6. ACTION PANEL
     st.markdown("---")
-    c1, c2 = st.columns(2)
+    ec1, ec2 = st.columns(2)
     
     if cur_lev > 0:
-        trade_side = "LONG" if tr_longs >= 4 else "SHORT"
-        if c1.button(f"🚀 Execute {trade_side} ({cur_lev}x)", use_container_width=True):
-            with st.spinner("Communicating with Solana..."):
-                sig = asyncio.run(run_drift_trade("TRADE", trade_side, cur_lev))
-                if sig: st.success(f"Trade Success! TX: {sig}")
+        side = "LONG" if tr_longs >= 4 else "SHORT"
+        if ec1.button(f"🚀 Execute {side} ({cur_lev}x)", use_container_width=True):
+            if asyncio.run(run_drift_action("TRADE", side, cur_lev)):
+                st.success("Trade Dispatched!")
+                st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": f"{side} {cur_lev}x"})
 
-    if c2.button("🔴 CLOSE ALL POSITIONS", use_container_width=True):
-        with st.spinner("Closing all open orders..."):
-            sig = asyncio.run(run_drift_trade("CLOSE"))
-            if sig: st.warning("Close Order Sent.")
+    if ec2.button("🔴 CLOSE ALL POSITIONS", use_container_width=True):
+        if asyncio.run(run_drift_action("CLOSE")): 
+            st.warning("Closing Positions...")
+            st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": "CLOSE ALL"})
 
     if st.session_state.trade_history:
         st.table(pd.DataFrame(st.session_state.trade_history).tail(5))
-else:
-    st.error("Waiting for market data connection...")
