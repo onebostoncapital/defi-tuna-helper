@@ -21,7 +21,7 @@ def fetch_base_data(interval="1h", symbol="SOL-USD"):
         df.columns = [col[0].lower() if isinstance(col, tuple) else col.lower() for col in df.columns]
         df = df.reset_index().rename(columns={'Date': 'date', 'Datetime': 'date'})
         
-        # REQUIRED INDICATORS
+        # INDICATORS
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
         df['200_sma'] = df['close'].rolling(window=200).mean()
         
