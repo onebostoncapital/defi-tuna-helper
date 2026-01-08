@@ -7,13 +7,14 @@ from datetime import datetime
 import streamlit.components.v1 as components
 from data_engine import fetch_base_data
 
-# 1. CORE IDENTITY & STYLE
+# 1. CORE IDENTITY & STYLE (Rule 14 & Rule 5)
 st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
 
-# Persistent Settings
+# Persistent Settings Vault (Master Lock)
 if 'perp_entry' not in st.session_state: st.session_state.perp_entry = 0.0
 if 'perp_tp' not in st.session_state: st.session_state.perp_tp = 0.0
 if 'perp_sl' not in st.session_state: st.session_state.perp_sl = 0.0
+if 'chart_tf' not in st.session_state: st.session_state.chart_tf = "1h"
 
 theme = st.sidebar.radio("Theme Mode", ["Dark Mode", "Light Mode"], index=0)
 bg = "#000000" if theme == "Dark Mode" else "#FFFFFF"
@@ -27,10 +28,12 @@ st.markdown(f"""
     .signal-card {{ padding: 25px; border-radius: 15px; border: 2px solid {accent}; background: {"#050505" if theme=="Dark Mode" else "#f9f9f9"}; margin-bottom: 25px; }}
     .alarm-active {{ border: 2px solid #ff0000 !important; animation: blinker 1s linear infinite; }}
     @keyframes blinker {{ 50% {{ opacity: 0.5; }} }}
+    .stButton>button {{ width: 100%; border-radius: 5px; height: 3em; background-color: #111; color: white; border: 1px solid #333; }}
+    .stButton>button:hover {{ border-color: {accent}; color: {accent}; }}
 </style>
 """, unsafe_allow_html=True)
 
-# 2. ALARM ENGINE
+# 2. ALARM ENGINE (Rule: Loud Alarm + 5x Popups)
 def trigger_alarm():
     alarm_js = """
     <script>
@@ -43,25 +46,26 @@ def trigger_alarm():
     """
     components.html(alarm_js, height=0)
 
-# 3. INTERACTIVE HEADER & TIMEFRAME SELECTOR
-st.title("🛡️ Sreejan Perp Forecaster Sentinel")
-main_tf = st.select_slider(
-    "Select Interactive Chart Timeframe",
-    options=["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"],
-    value="1h"
-)
+# 3. INTERACTIVE TIMEFRAME NAVIGATION BUTTONS
+st.subheader("🔭 Emmanuel Multi-Timeframe Radar")
+tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
+nav_cols = st.columns(len(tfs))
 
-# 4. PRIMARY DATA FETCH (The "Heart")
+for i, tf_option in enumerate(tfs):
+    if nav_cols[i].button(tf_option, key=f"btn_{tf_option}"):
+        st.session_state.chart_tf = tf_option
+
+# 4. PRIMARY DATA FETCH
 try:
-    df, btc_p, _, status = fetch_base_data(main_tf)
+    df, btc_p, _, status = fetch_base_data(st.session_state.chart_tf)
 except Exception as e:
-    st.error(f"Waiting for Data Connection... ({e})")
+    st.error("Connecting to Market Data...")
     status = False
 
 if status:
     price = df['close'].iloc[-1]
     
-    # Initialize sliders if they are 0
+    # Init Sliders if Empty
     if st.session_state.perp_entry == 0.0: st.session_state.perp_entry = float(price)
     if st.session_state.perp_tp == 0.0: st.session_state.perp_tp = float(price * 1.05)
     if st.session_state.perp_sl == 0.0: st.session_state.perp_sl = float(price * 0.98)
@@ -69,30 +73,22 @@ if status:
     # 5. HEADER METRICS
     c1, c2, c3 = st.columns(3)
     c1.metric("₿ BTC", f"${btc_p:,.2f}")
-    c2.metric("S SOL", f"${price:,.2f}")
+    c2.metric(f"S SOL ({st.session_state.chart_tf})", f"${price:,.2f}")
 
-    # 6. MULTI-TIMEFRAME RADAR (Safe Loop)
+    # 6. DYNAMIC MTF RADAR DISPLAY
     st.markdown("---")
-    st.subheader("🔭 Multi-Timeframe Radar")
-    tfs = ["1m", "5m", "15m", "30m", "1h", "6h", "12h", "1d"]
     mcols = st.columns(8)
     longs, shorts = 0, 0
-    
     for i, t in enumerate(tfs):
         try:
-            # We use a smaller limit for radar to speed up loading
             d_mtf, _, _, s_mtf = fetch_base_data(t)
             if s_mtf:
                 p_m, e20, s200 = d_mtf['close'].iloc[-1], d_mtf['20_ema'].iloc[-1], d_mtf['200_sma'].iloc[-1]
-                if p_m > s200 and p_m > e20:
-                    sig, color, longs = "🟢 LONG", "#00ff00", longs + 1
-                elif p_m < s200 and p_m < e20:
-                    sig, color, shorts = "🔴 SHORT", "#ff4b4b", shorts + 1
-                else:
-                    sig, color = "🟡 WAIT", "#888"
+                if p_m > s200 and p_m > e20: sig, color, longs = "🟢 LONG", "#00ff00", longs + 1
+                elif p_m < s200 and p_m < e20: sig, color, shorts = "🔴 SHORT", "#ff4b4b", shorts + 1
+                else: sig, color = "🟡 WAIT", "#888"
                 mcols[i].markdown(f"**{t}**\n\n<span style='color:{color};'>{sig}</span>", unsafe_allow_html=True)
-        except:
-            mcols[i].markdown(f"**{t}**\n\n<span style='color:orange;'>SCANNING...</span>", unsafe_allow_html=True)
+        except: mcols[i].markdown(f"**{t}**\n\n<span style='color:orange;'>SCAN...</span>", unsafe_allow_html=True)
 
     conviction = "STRONG" if (longs >= 6 or shorts >= 6) else "MODERATE"
     c3.metric("Consensus", f"{max(longs, shorts)}/8 Alignment", conviction)
@@ -100,10 +96,7 @@ if status:
     st.markdown("---")
 
     # 7. INTERACTIVE PLOTLY CHART
-    fig = go.Figure(data=[go.Candlestick(
-        x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
-        name="SOL/USDT"
-    )])
+    fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="SOL")])
     fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6", width=2)))
     fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", dash='dot', width=2)))
     
@@ -115,7 +108,7 @@ if status:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # 8. MANUAL WAR ROOM (Sovereign & Persistent)
+    # 8. MANUAL WAR ROOM (Rule 11/14/15 - Master Lock)
     st.markdown(f'<div class="signal-card {"alarm-active" if conviction=="STRONG" else ""}">', unsafe_allow_html=True)
     st.subheader("✍️ War Room: Manual Entry & Safety Soul")
     
@@ -144,4 +137,4 @@ if status:
     st.sidebar.subheader("Live Sentinel History")
     st.sidebar.button("Acknowledge & Silence Siren")
 else:
-    st.warning("Connecting to Market Data... Please wait a few seconds.")
+    st.warning("Connecting to Market Data... Click a Timeframe button to retry.")
