@@ -43,11 +43,11 @@ for i, tf in enumerate(tfs):
     if nav_cols[i].button(tf): st.session_state.chart_tf = tf
 
 # 4. DATA FETCH
-with st.spinner('Gathering Market Intelligence...'):
+with st.spinner('Gathering Market Intelligence via Yahoo...'):
     df, btc_p, err, status = fetch_base_data(st.session_state.chart_tf)
 
 if not status:
-    st.error(f"⚠️ Market Access Denied: {err}")
+    st.error(f"⚠️ {err}")
 else:
     price = df['close'].iloc[-1]
     c1, c2, c3 = st.columns(3)
@@ -66,8 +66,8 @@ else:
             d_m, _, _, s_m = fetch_base_data(t)
             if s_m:
                 pm, e20, s200 = d_m['close'].iloc[-1], d_m['20_ema'].iloc[-1], d_m['200_sma'].iloc[-1]
-                if pm > s200 and pm > e20: sig, color, longs = "🟢 LONG", "#00ff00", longs + 1
-                elif pm < s200 and pm < e20: sig, color, shorts = "🔴 SHORT", "#ff4b4b", shorts + 1
+                if pm > s200 and pm > e20: sig, color, longs = "🟢 LONG", "#0ff0", longs + 1
+                elif pm < s200 and pm < e20: sig, color, shorts = "🔴 SHORT", "#f44", shorts + 1
                 else: sig, color = "🟡 WAIT", "#888"
                 mcols[i].markdown(f"**{t}**\n\n<span style='color:{color};'>{sig}</span>", unsafe_allow_html=True)
         except: pass
