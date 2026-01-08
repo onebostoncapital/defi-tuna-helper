@@ -6,7 +6,7 @@ from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
 # 1. SETUP
-st.set_page_config(page_title="Sreejan Sentinel Pro", layout="wide")
+st.set_page_config(page_title="Sreejan Sentinel: Fixed Bias", layout="wide")
 st_autorefresh(interval=1000, key="ui_pulse")
 
 if 'last_market_update' not in st.session_state: 
@@ -34,7 +34,7 @@ if status:
     c1.markdown(f"<h1 style='text-align: center; font-size: 55px;'>SOL: ${sol_p:,.2f}</h1>", unsafe_allow_html=True)
     c2.markdown(f"<h1 style='text-align: center; font-size: 55px;'>BTC: ${btc_p:,.2f}</h1>", unsafe_allow_html=True)
 
-    # 4. 8-JUDGE MATRIX (NOW WITH 12H)
+    # 4. 8-JUDGE MATRIX
     st.markdown("### 🏛️ Consensus Judge Matrix")
     tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
     mcols = st.columns(8)
@@ -59,25 +59,39 @@ if status:
                 unsafe_allow_html=True
             )
 
-    # 5. FIXED GLOBAL BIAS BOX
+    # 5. AGGRESSIVE GLOBAL BIAS BOX (WILL NEVER BE BLANK)
     st.markdown("---")
+    
+    # Logic: Which side has more votes?
+    current_direction = "GO LONG" if tr_longs >= tr_shorts else "GO SHORT"
     tr_count = max(tr_longs, tr_shorts)
-    is_signal = tr_count >= 4
     
-    # Force Strings for display to prevent blank boxes
-    final_dir = "GO LONG" if tr_longs >= tr_shorts else "GO SHORT"
+    # Rule: Minimum 4 judges for a real signal
+    is_valid = tr_count >= 4
+    
+    # Final String Preparation (Forcing display)
+    final_bias_text = current_direction if is_valid else "NEUTRAL / WAITING"
+    
     lev_map = {4: "2x", 5: "3x", 6: "4x", 7: "5x", 8: "5x"}
-    final_lev = lev_map.get(tr_count, "Wait for Consensus") if is_signal else "Wait for Consensus"
+    final_lev_text = lev_map.get(tr_count, "No Signal") if is_valid else "WAITING FOR 4/8 JUDGES"
     
-    box_clr = "#0ff0" if (tr_longs >= tr_shorts and is_signal) else "#f44" if is_signal else "#666"
-    display_bias = final_dir if is_signal else "NEUTRAL"
+    # Visual Color
+    final_color = "#0ff0" if (is_valid and current_direction == "GO LONG") else "#f44" if is_valid else "#888"
 
+    # SINGLE HTML BLOCK (FORCED RENDERING)
     st.markdown(
         f"""
-        <div style="background-color: #262730; border: 5px solid {box_clr}; border-radius: 15px; padding: 40px; text-align: center;">
-            <h1 style="color: white; font-size: 55px; margin-bottom: 0px;">GLOBAL BIAS: <span style="color: {box_clr};">{display_bias}</span></h1>
-            <p style="color: #aaa; font-size: 20px;">Matrix Confidence: {tr_count}/8 Judges | Sync: {remaining}s</p>
-            <h2 style="color: white; font-size: 45px; margin-top: 10px;">Leverage: <span style="color: {box_clr};">{final_lev}</span></h2>
+        <div style="background-color: #1e2129; border: 5px solid {final_color}; border-radius: 15px; padding: 45px; text-align: center; color: white;">
+            <p style="margin: 0; font-size: 20px; color: #aaa;">Sreejan Intelligence Consensus</p>
+            <h1 style="margin: 10px 0; font-size: 65px; font-weight: bold;">
+                GLOBAL BIAS: <span style="color: {final_color};">{final_bias_text}</span>
+            </h1>
+            <h2 style="margin: 10px 0; font-size: 45px;">
+                Leverage: <span style="color: {final_color};">{final_lev_text}</span>
+            </h2>
+            <p style="margin: 0; font-size: 18px; color: #888;">
+                Confidence: {tr_count}/8 Judges | Logic: EMA 20 + SMA 200 | Sync: {remaining}s
+            </p>
         </div>
         """, unsafe_allow_html=True
     )
@@ -99,4 +113,4 @@ if status:
         st.plotly_chart(fig, use_container_width=True)
 
 else:
-    st.error(f"Engine Reconnecting... {err}")
+    st.error(f"Reconnecting to exchange... {err}")
