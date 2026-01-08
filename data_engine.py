@@ -9,12 +9,20 @@ def fetch_base_data(interval="1h", symbol="SOL-USD"):
     try:
         btc = yf.Ticker("BTC-USD").history(period="1d")
         btc_p = float(btc['Close'].iloc[-1]) if not btc.empty else 0.0
+        
+        # Ensure enough data for 200 SMA
         period = "7d" if y_tf in ["1m", "5m", "15m", "30m"] else "max"
         df = yf.download(tickers=symbol, period=period, interval=y_tf, progress=False)
+        
         if df.empty: return None, btc_p, "Offline", False
+        
         df.columns = [col[0].lower() if isinstance(col, tuple) else col.lower() for col in df.columns]
         df = df.reset_index().rename(columns={'Date': 'date', 'Datetime': 'date'})
+        
+        # REQUIRED INDICATORS
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
         df['200_sma'] = df['close'].rolling(window=200).mean()
+        
         return df, btc_p, None, True
-    except: return None, 0.0, "Error", False
+    except:
+        return None, 0.0, "API Error", False
