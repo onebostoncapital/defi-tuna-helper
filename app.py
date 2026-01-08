@@ -5,107 +5,92 @@ import time
 from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
-# 1. SETUP
-st.set_page_config(page_title="Sreejan Sentinel: Fixed Bias", layout="wide")
-st_autorefresh(interval=1000, key="ui_pulse")
+# 1. UI SETUP
+st.set_page_config(page_title="Sreejan Sentinel Pro", layout="wide")
+st_autorefresh(interval=1000, key="pulse")
 
-if 'last_market_update' not in st.session_state: 
-    st.session_state.last_market_update = time.time()
-if 'chart_tf' not in st.session_state:
-    st.session_state.chart_tf = "1h"
+if 'last_upd' not in st.session_state: st.session_state.last_upd = time.time()
+if 'chart_tf' not in st.session_state: st.session_state.chart_tf = "1h"
 
-# 2. 66s SYNC
-elapsed = time.time() - st.session_state.last_market_update
+# 2. 66s SYNC RULE
+elapsed = time.time() - st.session_state.last_upd
 remaining = max(0, int(66 - elapsed))
-
 if elapsed >= 66:
     st.cache_data.clear()
-    st.session_state.last_market_update = time.time()
+    st.session_state.last_upd = time.time()
     st.rerun()
 
-# 3. PRICES
-df_main, btc_p, err, status = fetch_base_data("1h")
+# 3. DATA FETCH
+df_m, btc_p, err, status = fetch_base_data("1h")
 
 if status:
-    sol_p = df_main['close'].iloc[-1]
+    sol_p = df_m['close'].iloc[-1]
     
-    # Large Header
-    c1, c2 = st.columns(2)
-    c1.markdown(f"<h1 style='text-align: center; font-size: 55px;'>SOL: ${sol_p:,.2f}</h1>", unsafe_allow_html=True)
-    c2.markdown(f"<h1 style='text-align: center; font-size: 55px;'>BTC: ${btc_p:,.2f}</h1>", unsafe_allow_html=True)
+    # Large Headers
+    h1, h2 = st.columns(2)
+    h1.markdown(f"<h1 style='text-align:center; font-size:60px;'>SOL: ${sol_p:,.2f}</h1>", unsafe_allow_html=True)
+    h2.markdown(f"<h1 style='text-align:center; font-size:60px;'>BTC: ${btc_p:,.2f}</h1>", unsafe_allow_html=True)
 
     # 4. 8-JUDGE MATRIX
-    st.markdown("### 🏛️ Consensus Judge Matrix")
+    st.write("### 🏛️ Consensus Judge Matrix")
     tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
-    mcols = st.columns(8)
-    tr_longs, tr_shorts = 0, 0
+    cols = st.columns(8)
+    longs, shorts = 0, 0
 
     for i, t in enumerate(tfs):
-        dm, _, _, sm = fetch_base_data(t)
-        if sm:
-            p, e, s = dm['close'].iloc[-1], dm['20_ema'].iloc[-1], dm['200_sma'].iloc[-1]
+        df, _, _, ok = fetch_base_data(t)
+        if ok:
+            p, e, s = df['close'].iloc[-1], df['20_ema'].iloc[-1], df['200_sma'].iloc[-1]
             if p > s and p > e:
-                sig, clr, bg = "🟢 LONG", "#0ff0", "rgba(0,255,0,0.1)"
-                tr_longs += 1
+                msg, clr, bg = "🟢 LONG", "#0ff0", "rgba(0,255,0,0.1)"
+                longs += 1
             elif p < s and p < e:
-                sig, clr, bg = "🔴 SHORT", "#f44", "rgba(255,0,0,0.1)"
-                tr_shorts += 1
+                msg, clr, bg = "🔴 SHORT", "#f44", "rgba(255,0,0,0.1)"
+                shorts += 1
             else:
-                sig, clr, bg = "🟡 WAIT", "#888", "rgba(128,128,128,0.1)"
+                msg, clr, bg = "🟡 WAIT", "#888", "rgba(128,128,128,0.1)"
             
-            mcols[i].markdown(
-                f"<div style='border:1px solid {clr}; border-radius:5px; padding:10px; "
-                f"background-color:{bg}; text-align:center;'><b>{t}</b><br>{sig}</div>", 
-                unsafe_allow_html=True
-            )
+            cols[i].markdown(f"<div style='border:1px solid {clr}; border-radius:5px; padding:10px; background-color:{bg}; text-align:center;'><b>{t}</b><br>{msg}</div>", unsafe_allow_html=True)
 
-    # 5. AGGRESSIVE GLOBAL BIAS BOX (WILL NEVER BE BLANK)
+    # 5. THE GLOBAL BIAS BOX (THE "NO-BLANK" FIX)
     st.markdown("---")
     
-    # Logic: Which side has more votes?
-    current_direction = "GO LONG" if tr_longs >= tr_shorts else "GO SHORT"
-    tr_count = max(tr_longs, tr_shorts)
+    # Determine the strongest signal
+    score = max(longs, shorts)
+    side = "GO LONG" if longs >= shorts else "GO SHORT"
     
-    # Rule: Minimum 4 judges for a real signal
-    is_valid = tr_count >= 4
-    
-    # Final String Preparation (Forcing display)
-    final_bias_text = current_direction if is_valid else "NEUTRAL / WAITING"
-    
+    # Leverage Mapping
     lev_map = {4: "2x", 5: "3x", 6: "4x", 7: "5x", 8: "5x"}
-    final_lev_text = lev_map.get(tr_count, "No Signal") if is_valid else "WAITING FOR 4/8 JUDGES"
+    lev_val = lev_map.get(score, "WAITING")
     
-    # Visual Color
-    final_color = "#0ff0" if (is_valid and current_direction == "GO LONG") else "#f44" if is_valid else "#888"
+    # Box Appearance logic
+    box_color = "#0ff0" if (score >= 4 and side == "GO LONG") else "#f44" if (score >= 4) else "#555"
+    display_signal = side if score >= 4 else "NEUTRAL"
+    display_lev = f"USE {lev_val} LEVERAGE" if score >= 4 else "WAIT FOR 4/8 JUDGES"
 
-    # SINGLE HTML BLOCK (FORCED RENDERING)
+    # SINGLE BLOCK HTML - This prevents the text from being "missing"
     st.markdown(
         f"""
-        <div style="background-color: #1e2129; border: 5px solid {final_color}; border-radius: 15px; padding: 45px; text-align: center; color: white;">
-            <p style="margin: 0; font-size: 20px; color: #aaa;">Sreejan Intelligence Consensus</p>
-            <h1 style="margin: 10px 0; font-size: 65px; font-weight: bold;">
-                GLOBAL BIAS: <span style="color: {final_color};">{final_bias_text}</span>
-            </h1>
-            <h2 style="margin: 10px 0; font-size: 45px;">
-                Leverage: <span style="color: {final_color};">{final_lev_text}</span>
-            </h2>
-            <p style="margin: 0; font-size: 18px; color: #888;">
-                Confidence: {tr_count}/8 Judges | Logic: EMA 20 + SMA 200 | Sync: {remaining}s
-            </p>
+        <div style="background-color: #1e2129; border: 5px solid {box_color}; border-radius: 15px; padding: 50px; text-align: center;">
+            <p style="color: #888; margin: 0; font-size: 20px;">Sreejan Intelligence Consensus</p>
+            <h1 style="color: white; font-size: 70px; margin: 10px 0;">GLOBAL BIAS: <span style="color: {box_color};">{display_signal}</span></h1>
+            <h2 style="color: {box_color}; font-size: 50px; margin: 5px 0;">{display_lev}</h2>
+            <p style="color: #666; font-size: 18px; margin-top: 15px;">Confidence: {score}/8 Judges | Logic: EMA 20 + SMA 200 | Sync: {remaining}s</p>
         </div>
         """, unsafe_allow_html=True
     )
 
-    # 6. CHART
+    # 6. CHART CONTROLS
     st.markdown("---")
     nav = st.columns(8)
     for i, t in enumerate(tfs):
-        if nav[i].button(t, key=f"v_{t}", use_container_width=True):
+        if nav[i].button(t, key=f"btn_{t}", use_container_width=True):
             st.session_state.chart_tf = t
             st.rerun()
 
-    df_c, _, _, c_st = fetch_base_data(st.session_state.chart_tf)
-    if c_st:
+    # 7. MAIN CHART
+    df_c, _, _, c_ok = fetch_base_data(st.session_state.chart_tf)
+    if c_ok:
         fig = go.Figure(data=[go.Candlestick(x=df_c['date'], open=df_c['open'], high=df_c['high'], low=df_c['low'], close=df_c['close'])])
         fig.add_trace(go.Scatter(x=df_c['date'], y=df_c['20_ema'], name="20 EMA", line=dict(color="#854CE6")))
         fig.add_trace(go.Scatter(x=df_c['date'], y=df_c['200_sma'], name="200 SMA", line=dict(color="#FF9900", dash='dot')))
@@ -113,4 +98,4 @@ if status:
         st.plotly_chart(fig, use_container_width=True)
 
 else:
-    st.error(f"Reconnecting to exchange... {err}")
+    st.error(f"Reconnecting... {err}")
