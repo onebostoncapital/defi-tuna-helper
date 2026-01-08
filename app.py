@@ -22,11 +22,11 @@ st.markdown(f"<style>.stApp {{ background-color: {bg}; color: {txt} !important; 
 with st.expander("🔐 Sentinel & Drift Wallet Status"):
     sender = st.text_input("Gmail Address", value="sreejan@onebostoncapital.com")
     pwd = st.text_input("App Password", type="password")
-    auto_pilot = st.toggle("🚀 ENABLE AUTO-PILOT (Dynamic Leverage 2x/3x)")
+    auto_pilot = st.toggle("🚀 ENABLE AUTO-PILOT (Tiered Leverage Active)")
     time_left = 30 - int(time.time() % 30)
-    st.info(f"Next Sync: {time_left}s | Stable (5-6/7): 2x | Strong (7/7): 3x")
+    st.info(f"Next Sync: {time_left}s | Scaling: 4/7=2x, 5/7=3x, 6/7=4x, 7/7=5x")
 
-# 3. ANALYSIS & CONSENSUS
+# 3. ANALYSIS & CONSENSUS ENGINE
 df, btc_p, err, status = fetch_base_data(st.session_state.chart_tf)
 
 if status:
@@ -35,7 +35,7 @@ if status:
     c1.metric("₿ BTC Price", f"${btc_p:,.2f}")
     c2.metric(f"S SOL Price ({st.session_state.chart_tf})", f"${price:,.2f}")
 
-    # THE 8 JUDGES
+    # THE 8 JUDGES (Monitoring from 1m up)
     st.markdown("---")
     tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
     mcols = st.columns(8)
@@ -47,17 +47,21 @@ if status:
             p, e, s = dm['close'].iloc[-1], dm['20_ema'].iloc[-1], dm['200_sma'].iloc[-1]
             if p > s and p > e: 
                 sig, clr = "🟢 LONG", "#0ff0"
-                if i >= 1: trigger_longs += 1
+                if i >= 1: trigger_longs += 1 # 5m to 1d (7 judges total)
             elif p < s and p < e: 
                 sig, clr = "🔴 SHORT", "#f44"
                 if i >= 1: trigger_shorts += 1
             else: sig, clr = "🟡 WAIT", "#888"
             mcols[i].markdown(f"**{t}**\n\n<span style='color:{clr};'>{sig}</span>", unsafe_allow_html=True)
 
-    # DYNAMIC CONSENSUS METRIC
+    # --- TIERED LEVERAGE LOGIC ---
     trigger_count = max(trigger_longs, trigger_shorts)
-    current_lev = 3 if trigger_count == 7 else 2 if trigger_count >= 5 else 0
-    conv_status = "🔥 STRONG (3x)" if trigger_count == 7 else "⚖️ STABLE (2x)" if trigger_count >= 5 else "⏳ WAIT"
+    
+    # Mapping consensus to leverage
+    lev_map = {4: 2, 5: 3, 6: 4, 7: 5}
+    current_lev = lev_map.get(trigger_count, 0) if trigger_count >= 4 else 0
+    
+    conv_status = f"⚡ TIER {trigger_count} ({current_lev}x)" if current_lev > 0 else "⏳ SCANNING"
     c3.metric("Execution Target", f"{trigger_count}/7 Judges", conv_status)
 
     # 4. CHART & NAV
@@ -73,7 +77,7 @@ if status:
 
     # 5. WAR ROOM
     st.markdown("---")
-    st.subheader("✍️ War Room: Dynamic Sentinel Strategy")
+    st.subheader("✍️ War Room: Tiered Scaling Strategy")
     wc1, wc2, wc3 = st.columns(3)
     entry_trigger = wc1.number_input("Entry Price Trigger", value=float(price))
     tp_val = wc2.number_input("Predefined TP ($)", value=float(price*1.05))
@@ -81,28 +85,28 @@ if status:
     
     def send_sentinel_email(side, entry, tp, sl, consensus, leverage):
         try:
-            content = f"SENTINEL DISPATCH\nSide: {side}\nLev: {leverage}x\nEntry: {entry}\nTP: {tp}\nSL: {sl}\nJudges: {consensus}/7"
-            msg = MIMEText(content); msg['Subject'] = f"🛡️ {side} ({leverage}x) Executed"; msg['From'] = sender; msg['To'] = sender
+            content = f"SENTINEL TIERED DISPATCH\nSide: {side}\nLev: {leverage}x\nEntry: {entry}\nTP: {tp}\nSL: {sl}\nJudges: {consensus}/7"
+            msg = MIMEText(content); msg['Subject'] = f"🛡️ {side} ({leverage}x) - {consensus}/7 Consensus"; msg['From'] = sender; msg['To'] = sender
             server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
             server.login(sender, pwd); server.send_message(msg); server.quit()
             return True
         except Exception as e:
             st.error(f"Mail Error: {e}"); return False
 
-    # --- AUTO-PILOT DYNAMIC LOGIC ---
+    # --- AUTO-PILOT TIERED EXECUTION ---
     if auto_pilot and current_lev > 0:
-        side = "LONG" if trigger_longs >= 5 else "SHORT"
+        side = "LONG" if trigger_longs >= 4 else "SHORT"
         price_met = (side == "LONG" and price >= entry_trigger) or (side == "SHORT" and price <= entry_trigger)
         cooldown_met = (time.time() - st.session_state.last_trade_time > 300)
         
         if price_met and cooldown_met:
             if send_sentinel_email(side, price, tp_val, sl_val, trigger_count, current_lev):
                 st.session_state.last_trade_time = time.time()
-                st.success(f"Dynamic {current_lev}x {side} Trade Active!")
+                st.success(f"Tiered {current_lev}x {side} Trade Dispatched!")
 
-    if st.button("🚀 Force Manual Alert (Uses Dynamic Lev)"):
+    if st.button("🚀 Force Manual Tiered Alert"):
         if current_lev > 0:
             side = "LONG" if trigger_longs > trigger_shorts else "SHORT"
             send_sentinel_email(side, price, tp_val, sl_val, trigger_count, current_lev)
-            st.success(f"Manual {current_lev}x Alert Sent.")
-        else: st.warning("No consensus for manual trigger (Min 5/7 required).")
+            st.success(f"Manual {current_lev}x Alert Sent based on {trigger_count}/7 consensus.")
+        else: st.warning("Min 4/7 Consensus required for manual trigger.")
