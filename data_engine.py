@@ -3,7 +3,7 @@ import pandas as pd
 
 def fetch_base_data(interval="1h"):
     try:
-        # Standardized Period Mapping for all 8 judges
+        # Standardized Period Mapping for all 8 timeframes (including 12h)
         period_map = {
             "1m": "1d", "5m": "1d", "15m": "3d", "30m": "5d", 
             "1h": "7d", "4h": "14d", "12h": "30d", "1d": "60d"
@@ -17,12 +17,12 @@ def fetch_base_data(interval="1h"):
         if df.empty:
             return None, 0, f"No data for {interval}", False
 
-        # 2. Fix Index/KeyError
+        # 2. Prevent KeyError: Standardize Date and Column names
         df = df.reset_index()
         df.rename(columns={df.columns[0]: 'date'}, inplace=True)
         df.columns = [str(c).lower() for c in df.columns]
 
-        # 3. Rules: 20 EMA & 200 SMA
+        # 3. Technical Indicators (20 EMA & 200 SMA)
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
         df['200_sma'] = df['close'].rolling(window=200).mean()
         
