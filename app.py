@@ -6,14 +6,13 @@ from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
 # 1. UI SETUP
-st.set_page_config(page_title="Sreejan Sentinel: Intelligence Dashboard", layout="wide")
+st.set_page_config(page_title="Sreejan Sentinel Pro", layout="wide")
 st_autorefresh(interval=1000, key="ui_pulse")
 
 if 'last_market_update' not in st.session_state: 
     st.session_state.last_market_update = time.time()
 
-# 2. DATA FETCH (BTC & SOL PRICE)
-# Fetching primary 1h data for the dashboard header
+# 2. DATA FETCH
 df, btc_p, err_msg, status = fetch_base_data("1h")
 
 if status and df is not None:
@@ -27,7 +26,7 @@ if status and df is not None:
     with st.sidebar:
         st.header("📊 Intelligence Settings")
         st.success("✅ Engine: Online")
-        st.info("Information Mode Active: Trading logic removed for stability.")
+        st.info("Stable Mode: Information Only")
         
         elapsed = time.time() - st.session_state.last_market_update
         st.write(f"⏱️ Matrix Update: {max(0, int(30 - elapsed))}s")
@@ -46,10 +45,7 @@ if status and df is not None:
     for i, t in enumerate(tfs):
         dm, _, _, sm = fetch_base_data(t)
         if sm and dm is not None:
-            # Applying the 20 EMA / 200 SMA Rule-set
-            p = dm['close'].iloc[-1]
-            e = dm['20_ema'].iloc[-1]
-            s = dm['200_sma'].iloc[-1]
+            p, e, s = dm['close'].iloc[-1], dm['20_ema'].iloc[-1], dm['200_sma'].iloc[-1]
             
             if p > s and p > e:
                 sig, clr, bg = "🟢 LONG", "#0ff0", "rgba(0,255,0,0.1)"
@@ -85,17 +81,25 @@ if status and df is not None:
         f"</div>", unsafe_allow_html=True
     )
 
-    # 5. CHART
+    # 5. CHART (FIXED FOR KEYERROR)
     st.markdown("---")
     fig = go.Figure(data=[go.Candlestick(
-        x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close']
+        x=df['date'], 
+        open=df['open'], 
+        high=df['high'], 
+        low=df['low'], 
+        close=df['close'],
+        name="Price"
     )])
-    fig.update_layout(template="plotly_dark", height=450, margin=dict(l=0,r=0,t=0,b=0))
+    
+    # Adding the Indicators
+    fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6")))
+    fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", dash='dot')))
+    
+    fig.update_layout(template="plotly_dark", height=500, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
 else:
-    # This specifically addresses the "Engine Offline" error by showing the raw technical error
-    st.error(f"Engine Offline: {err_msg}")
-    st.info("Attempting to reconnect to yfinance API...")
-    if st.button("Manual Reconnect"):
+    st.error(f"Engine Error: {err_msg}")
+    if st.button("Retry Connection"):
         st.rerun()
