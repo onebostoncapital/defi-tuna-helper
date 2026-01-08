@@ -5,6 +5,7 @@ import time, asyncio
 from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
+# Core Drift/Solana Imports
 from solders.keypair import Keypair
 from driftpy.drift_client import DriftClient
 from driftpy.constants.numeric_constants import BASE_PRECISION
@@ -57,7 +58,7 @@ if status:
             else:
                 sig, clr, bg = "🟡 WAIT", "#888", "rgba(128,128,128,0.1)"
             
-            # FIXED: Corrected parameter to unsafe_allow_html
+            # FIXED: Corrected parameter name to unsafe_allow_html
             mcols[i].markdown(
                 f"<div style='border:1px solid {clr}; border-radius:5px; padding:10px; "
                 f"background-color:{bg}; text-align:center;'><b>{t}</b><br>"
@@ -76,14 +77,14 @@ if status:
     fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=0,b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # 5. FIXED DRIFT ENGINE
+    # 5. DRIFT EXECUTION ENGINE
     async def run_drift_action(action_type, side=None, leverage=0):
         if not pk_base58: return None
         try:
             connection = AsyncClient(rpc_url)
             kp = Keypair.from_base58_string(pk_base58)
             wallet = Wallet(kp)
-            # FIX: Properly initialize Provider
+            # FIXED: Correct initialization of Provider for Drift
             provider = Provider(connection, wallet)
             client = DriftClient(provider.connection, provider.wallet, account_subscription="polling")
             await client.subscribe()
@@ -108,14 +109,16 @@ if status:
     if cur_lev > 0:
         side = "LONG" if tr_longs >= 4 else "SHORT"
         if ec1.button(f"🚀 Execute {side} ({cur_lev}x)", use_container_width=True):
-            if asyncio.run(run_drift_action("TRADE", side, cur_lev)):
-                st.success("Trade Dispatched!")
-                st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": f"{side} {cur_lev}x"})
+            with st.spinner(f"Placing {side} on Drift..."):
+                if asyncio.run(run_drift_action("TRADE", side, cur_lev)):
+                    st.success("Trade Dispatched!")
+                    st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": f"{side} {cur_lev}x"})
 
     if ec2.button("🔴 CLOSE ALL POSITIONS", use_container_width=True):
-        if asyncio.run(run_drift_action("CLOSE")): 
-            st.warning("Closing Positions...")
-            st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": "CLOSE ALL"})
+        with st.spinner("Closing all Drift positions..."):
+            if asyncio.run(run_drift_action("CLOSE")): 
+                st.warning("Closing Order Sent.")
+                st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": "CLOSE ALL"})
 
     if st.session_state.trade_history:
         st.table(pd.DataFrame(st.session_state.trade_history).tail(5))
