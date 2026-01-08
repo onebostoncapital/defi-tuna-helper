@@ -7,57 +7,50 @@ from email.mime.text import MIMEText
 from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
-# 1. DUAL HEARTBEAT SYSTEM
+# 1. PAGE CONFIG & UI REFRESH
 st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
 
-# Heartbeat A: 1-second UI refresh for LIVE TIMER
+# This 1s refresh only updates the TIMER, not the data (keeps it fast)
 st_autorefresh(interval=1000, key="ui_counter") 
 
-# Heartbeat B: 30-second logic refresh for MARKET DATA
 if 'last_market_update' not in st.session_state:
     st.session_state.last_market_update = time.time()
-
-# Persistent States
 if 'chart_tf' not in st.session_state: st.session_state.chart_tf = "1h"
-if 'last_trade_time' not in st.session_state: st.session_state.last_trade_time = 0
 if 'trade_history' not in st.session_state: st.session_state.trade_history = []
 
 theme = st.sidebar.radio("Theme Mode", ["Dark Mode", "Light Mode"], index=0)
 bg, txt, accent = ("#000", "#FFF", "#D4AF37") if theme == "Dark Mode" else ("#FFF", "#000", "#D4AF37")
 st.markdown(f"<style>.stApp {{ background-color: {bg}; color: {txt} !important; }} h1, h2, h3 {{ color: {accent} !important; }}</style>", unsafe_allow_html=True)
 
-# 2. LIVE COUNTDOWN LOGIC
+# 2. LIVE TIMER LOGIC
 elapsed = time.time() - st.session_state.last_market_update
 time_to_refresh = max(0, int(30 - elapsed))
 
 if time_to_refresh <= 0:
     st.session_state.last_market_update = time.time()
+    st.cache_data.clear() # Force fresh data every 30s
     st.rerun()
 
-# 3. SIDEBAR CONTROLS
+# 3. SIDEBAR
 with st.sidebar:
-    st.header("🔐 Wallet & Settings")
+    st.header("🔐 Settings")
     sender = st.text_input("Gmail", value="sreejan@onebostoncapital.com")
     pwd = st.text_input("App Password", type="password")
     total_cap = st.number_input("Drift Equity ($)", value=1000.0)
     auto_pilot = st.toggle("🚀 ENABLE AUTO-PILOT")
-    
-    st.markdown("---")
-    st.subheader(f"⏱️ Next Market Sync: {time_to_refresh}s")
+    st.subheader(f"⏱️ Next Sync: {time_to_refresh}s")
     st.progress(time_to_refresh / 30)
 
-# 4. ANALYSIS & 8-JUDGE CONSENSUS MATRIX
+# 4. ANALYSIS & CONSENSUS MATRIX (RESTORED)
 df, btc_p, err, status = fetch_base_data(st.session_state.chart_tf)
 
 if status:
     price = df['close'].iloc[-1]
-    
-    # TOP METRICS ROW
     c1, c2, c3 = st.columns(3)
-    c1.metric("₿ BTC Price", f"${btc_p:,.2f}")
+    c1.metric("₿ BTC", f"${btc_p:,.2f}")
     c2.metric(f"S SOL ({st.session_state.chart_tf})", f"${price:,.2f}")
 
-    # --- RESTORED CONSENSUS MATRIX BOXES ---
+    # CONSENSUS MATRIX BOXES
     st.markdown("### 🏛️ Consensus Judge Matrix (8-Judges)")
     tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
     mcols = st.columns(8)
@@ -82,73 +75,53 @@ if status:
                 f"</div>", unsafe_allow_html=True
             )
 
-    # --- TIERED LEVERAGE & CONSENSUS TAB ---
+    # TIERED LEVERAGE LOGIC
     tr_count = max(tr_longs, tr_shorts)
     lev_map = {4: 2, 5: 3, 6: 4, 7: 5, 8: 5} 
     cur_lev = lev_map.get(tr_count, 0) if tr_count >= 4 else 0
-    conv_txt = f"⚡ TIER {tr_count} ({cur_lev}x)" if cur_lev > 0 else "🛑 NO CONSENSUS"
-    c3.metric("Execution Judge", f"{tr_count}/8 Align", conv_txt)
+    c3.metric("Execution Judge", f"{tr_count}/8 Align", f"{cur_lev}x Leverage" if cur_lev > 0 else "WAIT")
 
-    # 5. CHART WITH 20 EMA / 200 SMA
+    # 5. CHART WITH INDICATORS (20 EMA / 200 SMA)
     fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="Price")])
     fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6", width=2)))
     fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", width=2, dash='dot')))
-    
-    fig.update_layout(template="plotly_dark", paper_bgcolor=bg, plot_bgcolor=bg, height=450, xaxis_rangeslider_visible=False)
+    fig.update_layout(template="plotly_dark", height=450, xaxis_rangeslider_visible=False, margin=dict(l=0, r=0, t=0, b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # Timeframe Navigation
+    # Timeframe Selection
     nav_cols = st.columns(len(tfs))
     for i, tf_opt in enumerate(tfs):
-        if nav_cols[i].button(tf_opt, key=f"nav_{tf_opt}"):
+        if nav_cols[i].button(tf_opt):
             st.session_state.chart_tf = tf_opt
             st.rerun()
 
     # 6. WAR ROOM
     st.markdown("---")
-    st.subheader("✍️ War Room: Strategy Execution")
     wc1, wc2, wc3 = st.columns(3)
-    entry_req = wc1.number_input("Entry Trigger Price", value=float(price))
-    tp_val = wc2.number_input("Predefined Take Profit", value=float(price*1.05))
-    sl_val = wc3.number_input("Predefined Stop Loss", value=float(price*0.97))
+    entry_req = wc1.number_input("Trigger Price", value=float(price))
+    tp_val = wc2.number_input("Predefined TP", value=float(price*1.05))
+    sl_val = wc3.number_input("Predefined SL", value=float(price*0.97))
     
-    trade_size_usd = total_cap * 0.05 # 5% Capital Rule
+    trade_size_usd = total_cap * 0.05 
 
     def send_trade_email(side, lev, consensus):
         try:
-            content = (f"SENTINEL DISPATCH\n"
-                       f"Side: {side}\n"
-                       f"Base Size (5%): ${trade_size_usd:,.2f}\n"
-                       f"Leverage: {lev}x\n"
-                       f"Total Position: ${trade_size_usd * lev:,.2f}\n"
-                       f"Consensus: {consensus}/8\n"
-                       f"TP: {tp_val} | SL: {sl_val}")
-            msg = MIMEText(content); msg['Subject'] = f"🛡️ {side} {lev}x Executed"; msg['From'] = sender; msg['To'] = sender
+            content = f"SENTINEL ALERT\nSide: {side}\nSize: 5% (${trade_size_usd})\nLev: {lev}x\nConsensus: {consensus}/8"
+            msg = MIMEText(content); msg['Subject'] = f"🛡️ {side} {lev}x Alert"; msg['From'] = sender; msg['To'] = sender
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as s:
                 s.login(sender, pwd); s.send_message(msg)
             return True
-        except Exception as e:
-            st.error(f"Email Error: {e}"); return False
+        except Exception: return False
 
-    # 7. EXECUTION GATEWAY (MIN 4/8)
+    # 7. TRIGGER Logic
     if cur_lev > 0:
         side = "LONG" if tr_longs >= 4 else "SHORT"
-        
-        if auto_pilot and (time.time() - st.session_state.last_trade_time > 300):
-            if (side == "LONG" and price >= entry_req) or (side == "SHORT" and price <= entry_req):
-                if send_trade_email(side, cur_lev, tr_count):
-                    st.session_state.last_trade_time = time.time()
-                    st.session_state.trade_history.append({"Time": time.strftime("%H:%M:%S"), "Side": side, "Lev": f"{cur_lev}x"})
-                    st.success("Auto-Pilot Signal Dispatched.")
-
-        if st.button("🚀 MANUAL: Trigger Separate Entry Alert"):
+        if st.button("🚀 MANUAL: Trigger Email Alert"):
             if send_trade_email(side, cur_lev, tr_count):
-                st.session_state.trade_history.append({"Time": time.strftime("%H:%M:%S"), "Side": side, "Lev": f"{cur_lev}x"})
-                st.success("Manual Alert Sent Successfully.")
+                st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Side": side, "Lev": cur_lev})
+                st.success("Alert Sent!")
     else:
-        st.warning("⚠️ Min 4/8 Consensus required for execution.")
+        st.warning("⚠️ Min 4/8 Judges Required.")
 
-    # 8. POSITION TRACKER
     if st.session_state.trade_history:
-        st.write("### 📜 Recent Entries (Separate)")
-        st.table(pd.DataFrame(st.session_state.trade_history).tail(5))
+        st.table(pd.DataFrame(st.session_state.trade_history).tail(3))
