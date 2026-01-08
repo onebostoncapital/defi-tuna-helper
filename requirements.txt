@@ -2,7 +2,3 @@ pandas
 yfinance
 plotly
 streamlit-autorefresh
-driftpy
-anchorpy
-solders
-solana
