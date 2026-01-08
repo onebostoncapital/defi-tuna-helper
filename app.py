@@ -70,7 +70,9 @@ if status:
         if not pk_base58: return None
         try:
             connection = AsyncClient(rpc_url)
-            client = DriftClient(connection, Wallet(Keypair.from_base58_string(pk_base58)), account_subscription="polling")
+            kp = Keypair.from_base58_string(pk_base58)
+            wallet = Wallet(kp)
+            client = DriftClient(connection, wallet, account_subscription="polling")
             await client.subscribe()
             
             if action_type == "TRADE":
