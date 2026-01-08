@@ -2,4 +2,7 @@ pandas
 yfinance
 plotly
 streamlit-autorefresh
-requests
+driftpy==0.7.0
+anchorpy==0.19.0
+solders==0.21.0
+solana==0.34.3
