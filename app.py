@@ -5,16 +5,19 @@ import requests
 import plotly.graph_objects as go
 from datetime import datetime
 import streamlit.components.v1 as components
+import smtplib
+from email.mime.text import MIMEText
 from data_engine import fetch_base_data
 
 # 1. CORE IDENTITY & STYLE (Rule 14 & Rule 5)
 st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
 
-# Persistent Settings Vault (Master Lock)
+# Persistent Settings Vault (Master Lock - Rule 15)
 if 'perp_entry' not in st.session_state: st.session_state.perp_entry = 0.0
 if 'perp_tp' not in st.session_state: st.session_state.perp_tp = 0.0
 if 'perp_sl' not in st.session_state: st.session_state.perp_sl = 0.0
 if 'chart_tf' not in st.session_state: st.session_state.chart_tf = "1h"
+if 'last_alert_time' not in st.session_state: st.session_state.last_alert_time = None
 
 theme = st.sidebar.radio("Theme Mode", ["Dark Mode", "Light Mode"], index=0)
 bg = "#000000" if theme == "Dark Mode" else "#FFFFFF"
@@ -33,29 +36,55 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# 2. ALARM ENGINE (Rule: Loud Alarm + 5x Popups)
-def trigger_alarm():
-    alarm_js = """
+# 2. EMAIL SENTINEL LOGIC (Rule 22: The Secret Mailbox)
+with st.expander("🔐 Email Sentinel Setup (Gmail Only)"):
+    sender_email = st.text_input("Your Gmail Address", placeholder="example@gmail.com")
+    app_password = st.text_input("16-Digit App Password", type="password")
+    if st.button("Save & Test Connection"):
+        st.success("Connection Settings Saved!")
+
+def send_battle_alert(tf, direction, price):
+    if sender_email and app_password:
+        try:
+            msg = MIMEText(f"🚨 STRATEGY ALERT!\n\nSignal: {direction}\nTimeframe: {tf}\nPrice: ${price:,.2f}\n\nYour Magic Robot Guard has detected a strong alignment!")
+            msg['Subject'] = f"🔥 {direction} Signal on {tf}"
+            msg['From'] = sender_email
+            msg['To'] = sender_email
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                server.login(sender_email, app_password)
+                server.send_message(msg)
+            return True
+        except: return False
+    return False
+
+# 3. ALARM ENGINE (Rule: Loud Alarm + 5x Popups)
+def trigger_alarm(tf_desc, direction, price):
+    # Only send email once per signal event to avoid spam
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if st.session_state.last_alert_time != current_time:
+        send_battle_alert(tf_desc, direction, price)
+        st.session_state.last_alert_time = current_time
+
+    alarm_js = f"""
     <script>
     var audio = new Audio('https://actions.google.com/sounds/v1/alarms/emergency_siren.ogg');
     audio.play();
-    for (let i = 0; i < 5; i++) {
-        setTimeout(() => { alert("🚨 EMMANUEL SIGNAL: STRONG CONVICTION!"); }, i * 1500);
-    }
+    for (let i = 0; i < 5; i++) {{
+        setTimeout(() => {{ alert("🚨 EMMANUEL SIGNAL: STRONG CONVICTION on {tf_desc}!"); }}, i * 1500);
+    }}
     </script>
     """
     components.html(alarm_js, height=0)
 
-# 3. INTERACTIVE TIMEFRAME NAVIGATION BUTTONS
-st.subheader("🔭 Emmanuel Multi-Timeframe Radar")
+# 4. INTERACTIVE TIMEFRAME NAVIGATION
+st.title("🛡️ Sreejan Perp Forecaster Sentinel")
 tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
 nav_cols = st.columns(len(tfs))
-
 for i, tf_option in enumerate(tfs):
     if nav_cols[i].button(tf_option, key=f"btn_{tf_option}"):
         st.session_state.chart_tf = tf_option
 
-# 4. PRIMARY DATA FETCH
+# 5. PRIMARY DATA FETCH
 try:
     df, btc_p, _, status = fetch_base_data(st.session_state.chart_tf)
 except Exception as e:
@@ -65,18 +94,19 @@ except Exception as e:
 if status:
     price = df['close'].iloc[-1]
     
-    # Init Sliders if Empty
+    # Init Sliders if Empty (Master Lock)
     if st.session_state.perp_entry == 0.0: st.session_state.perp_entry = float(price)
     if st.session_state.perp_tp == 0.0: st.session_state.perp_tp = float(price * 1.05)
     if st.session_state.perp_sl == 0.0: st.session_state.perp_sl = float(price * 0.98)
 
-    # 5. HEADER METRICS
+    # 6. HEADER METRICS
     c1, c2, c3 = st.columns(3)
     c1.metric("₿ BTC", f"${btc_p:,.2f}")
     c2.metric(f"S SOL ({st.session_state.chart_tf})", f"${price:,.2f}")
 
-    # 6. DYNAMIC MTF RADAR DISPLAY
+    # 7. DYNAMIC MTF RADAR DISPLAY (Rule: Background Scanning)
     st.markdown("---")
+    st.subheader("🔭 Multi-Timeframe Radar")
     mcols = st.columns(8)
     longs, shorts = 0, 0
     for i, t in enumerate(tfs):
@@ -90,28 +120,26 @@ if status:
                 mcols[i].markdown(f"**{t}**\n\n<span style='color:{color};'>{sig}</span>", unsafe_allow_html=True)
         except: mcols[i].markdown(f"**{t}**\n\n<span style='color:orange;'>SCAN...</span>", unsafe_allow_html=True)
 
+    # 8. CONVICTION & AUTOMATIC ALARM
     conviction = "STRONG" if (longs >= 6 or shorts >= 6) else "MODERATE"
     c3.metric("Consensus", f"{max(longs, shorts)}/8 Alignment", conviction)
-    if conviction == "STRONG": trigger_alarm()
+    
+    if conviction == "STRONG":
+        dir_text = "LONG" if longs >= 6 else "SHORT"
+        trigger_alarm(st.session_state.chart_tf, dir_text, price)
+
     st.markdown("---")
 
-    # 7. INTERACTIVE PLOTLY CHART
+    # 9. INTERACTIVE PLOTLY CHART
     fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="SOL")])
     fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6", width=2)))
     fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", dash='dot', width=2)))
-    
-    fig.update_layout(
-        template="plotly_dark" if theme=="Dark Mode" else "plotly_white",
-        paper_bgcolor=bg, plot_bgcolor=bg, height=500,
-        xaxis=dict(rangeslider=dict(visible=False), type="date"),
-        yaxis=dict(fixedrange=False), hovermode="x unified"
-    )
+    fig.update_layout(template="plotly_dark" if theme=="Dark Mode" else "plotly_white", paper_bgcolor=bg, plot_bgcolor=bg, height=500, xaxis=dict(rangeslider=dict(visible=False), type="date"), yaxis=dict(fixedrange=False), hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
-    # 8. MANUAL WAR ROOM (Rule 11/14/15 - Master Lock)
+    # 10. MANUAL WAR ROOM (Rule 11/14/15 - Master Lock)
     st.markdown(f'<div class="signal-card {"alarm-active" if conviction=="STRONG" else ""}">', unsafe_allow_html=True)
     st.subheader("✍️ War Room: Manual Entry & Safety Soul")
-    
     lev = st.sidebar.slider("Leverage", 1.0, 50.0, 5.0)
     cap = st.sidebar.number_input("Total Capital ($)", value=10000.0)
     
@@ -128,13 +156,5 @@ if status:
 
     net_pnl = (((m_tp - m_entry) / m_entry) * lev * cap) - (cap * 0.0003 * 3)
     liq_p = price * (1 - (1/lev)*0.45) if longs >= shorts else price * (1 + (1/lev)*0.45)
-    
     st.markdown(f"**Net Profit Target:** ${net_pnl:,.2f} | **Liquidation Safety Floor:** ${liq_p:,.2f}")
     st.markdown('</div>', unsafe_allow_html=True)
-
-    # 9. SENTIMENT & HISTORY
-    st.sidebar.divider()
-    st.sidebar.subheader("Live Sentinel History")
-    st.sidebar.button("Acknowledge & Silence Siren")
-else:
-    st.warning("Connecting to Market Data... Click a Timeframe button to retry.")
