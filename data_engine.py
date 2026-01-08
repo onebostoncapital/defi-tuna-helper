@@ -9,8 +9,8 @@ def fetch_base_data(interval="1h"):
         sol = yf.Ticker("SOL-USD")
         df = sol.history(period=period_map.get(y_interval, "7d"), interval=y_interval)
         
-        # If no data, return a specific 'Failure' state instead of crashing
-        if df is None or df.empty or len(df) < 2: 
+        # If data is missing, we return a clear failure state to the app
+        if df is None or df.empty or len(df) < 5: 
             return None, 0, "No Data", False
 
         if interval == "12h":
@@ -20,9 +20,9 @@ def fetch_base_data(interval="1h"):
         df.columns = [str(c).lower() for c in df.columns]
         df.rename(columns={df.columns[0]: 'date'}, inplace=True)
 
-        # Tech Indicators
+        # Technical Indicators
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
-        # Ensure SMA doesn't crash if df is short
+        # Fallback for SMA if data is short
         window = min(200, len(df))
         df['200_sma'] = df['close'].rolling(window=window).mean()
         
