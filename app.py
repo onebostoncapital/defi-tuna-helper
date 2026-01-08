@@ -1,42 +1,45 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import time
-import requests
+import time, asyncio
 from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
+# Core Drift Imports (Wrapped for safety)
+try:
+    from solders.keypair import Keypair
+    from driftpy.drift_client import DriftClient
+    from driftpy.constants.numeric_constants import BASE_PRECISION
+    from driftpy.types import OrderType, PositionDirection, OrderParams
+    from anchorpy import Wallet, Provider
+    from solana.rpc.async_api import AsyncClient
+    DRIFT_READY = True
+except:
+    DRIFT_READY = False
+
 # 1. UI SETUP
-st.set_page_config(page_title="Sreejan Sentinel Pro", layout="wide")
+st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
 st_autorefresh(interval=1000, key="ui_pulse")
 
-if 'last_market_update' not in st.session_state: st.session_state.last_market_update = time.time()
-if 'trade_history' not in st.session_state: st.session_state.trade_history = []
-
-# 2. SIDEBAR
-with st.sidebar:
-    st.header("🔐 Connection Settings")
-    st.success("✅ Ultra-Light Engine Active (No-SDK Mode)")
-    
-    # We use an API Bridge to avoid the Drift SDK install errors
-    api_key = st.text_input("DEX API Key (or Private Key)", type="password")
-    rpc_url = st.text_input("RPC URL", value="https://api.mainnet-beta.solana.com")
-    total_cap = st.number_input("Trading Capital ($)", value=1000.0)
-    auto_pilot = st.toggle("🚀 ENABLE AUTO-PILOT")
-    
-    elapsed = time.time() - st.session_state.last_market_update
-    st.write(f"⏱️ Market Sync: {max(0, int(30 - elapsed))}s")
-
-# Auto-refresh logic
-if (time.time() - st.session_state.last_market_update) >= 30:
-    st.session_state.last_market_update = time.time()
-    st.cache_data.clear()
-    st.rerun()
-
-# 3. 8-JUDGE CONSENSUS MATRIX
+# 2. DATA FETCH (BTC & SOL PRICE)
 df, btc_p, err, status = fetch_base_data("1h")
+
+# 3. HEADER & SIDEBAR
 if status:
-    price = df['close'].iloc[-1]
+    sol_p = df['close'].iloc[-1]
+    c1, c2, c3 = st.columns([2, 2, 4])
+    c1.metric("🪙 SOLANA PRICE", f"${sol_p:,.2f}")
+    c2.metric("₿ BITCOIN PRICE", f"${btc_p:,.2f}")
+    
+    with st.sidebar:
+        st.header("🔐 Drift Execution")
+        rpc_url = st.text_input("RPC URL", value="https://api.mainnet-beta.solana.com")
+        pk_base58 = st.text_input("Private Key", type="password")
+        total_cap = st.number_input("Margin ($)", value=1000.0)
+        auto_pilot = st.toggle("🚀 AUTO-PILOT")
+        st.write(f"SDK Status: {'✅ Ready' if DRIFT_READY else '❌ Error'}")
+
+    # 4. 8-JUDGE CONSENSUS MATRIX
     st.markdown("### 🏛️ Consensus Judge Matrix")
     tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
     mcols = st.columns(8); tr_longs, tr_shorts = 0, 0
@@ -54,7 +57,7 @@ if status:
             else:
                 sig, clr, bg = "🟡 WAIT", "#888", "rgba(128,128,128,0.1)"
             
-            # FIXED: Corrected parameter name to avoid TypeError
+            # FIXED: Corrected parameter name to unsafe_allow_html
             mcols[i].markdown(
                 f"<div style='border:1px solid {clr}; border-radius:5px; padding:10px; "
                 f"background-color:{bg}; text-align:center;'><b>{t}</b><br>"
@@ -62,46 +65,56 @@ if status:
                 unsafe_allow_html=True
             )
 
+    # 5. CONSOLIDATED CONSENSUS BOX
+    st.markdown("---")
     tr_count = max(tr_longs, tr_shorts)
+    final_dir = "LONG" if tr_longs >= tr_shorts else "SHORT"
     lev_map = {4: 2, 5: 3, 6: 4, 7: 5, 8: 5}
     cur_lev = lev_map.get(tr_count, 0) if tr_count >= 4 else 0
+    
+    con_clr = "#0ff0" if final_dir == "LONG" and cur_lev > 0 else "#f44" if cur_lev > 0 else "#888"
+    
+    st.markdown(
+        f"<div style='border:2px solid {con_clr}; border-radius:10px; padding:20px; background-color:rgba(0,0,0,0.3); text-align:center;'>"
+        f"<h2>GLOBAL CONSENSUS: <span style='color:{con_clr}'>{final_dir if cur_lev > 0 else 'NEUTRAL'}</span></h2>"
+        f"<h4>Confidence: {tr_count}/8 Judges | Recommended Leverage: {cur_lev}x</h4>"
+        f"</div>", unsafe_allow_html=True
+    )
 
-    # 4. CHART
+    # 6. CHART
     fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="SOL")])
-    fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6")))
-    fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", dash='dot')))
-    fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor="black", plot_bgcolor="black")
+    fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=0,b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # 5. EXECUTION PANEL (Headless API Approach)
+    # 7. DRIFT ENGINE (SHORT & LONG SUPPORT)
+    async def run_drift_action(side, leverage):
+        if not pk_base58 or not DRIFT_READY: return None
+        try:
+            async_client = AsyncClient(rpc_url)
+            kp = Keypair.from_base58_string(pk_base58)
+            wallet = Wallet(kp)
+            provider = Provider(async_client, wallet)
+            client = DriftClient(provider.connection, provider.wallet, account_subscription="polling")
+            await client.subscribe()
+            
+            sol_qty = int(((total_cap * 0.05 * leverage) / sol_p) * BASE_PRECISION)
+            direction = PositionDirection.Long() if side == "LONG" else PositionDirection.Short()
+            params = OrderParams(order_type=OrderType.Market(), market_index=0, direction=direction, base_asset_amount=sol_qty)
+            
+            sig = await client.place_perp_order(params)
+            await client.unsubscribe(); await async_client.close()
+            return sig
+        except Exception as e:
+            st.error(f"Execution Error: {e}"); return None
+
+    # 8. EXECUTION BUTTONS
     st.markdown("---")
     ec1, ec2, ec3 = st.columns(3)
-    
-    # Logic for Long/Short execution via API
-    def execute_api_trade(side, leverage):
-        # This replaces the heavy Drift SDK with a light REST request
-        # You can use Jupiter's V6 API or a custom bridge here
-        st.info(f"Sending {side} signal to Blockchain via API Bridge...")
-        time.sleep(1) # Simulating network
-        return True
+    if ec1.button(f"🚀 Open Drift LONG ({cur_lev}x)", use_container_width=True):
+        asyncio.run(run_drift_action("LONG", cur_lev))
+    if ec2.button(f"🔻 Open Drift SHORT ({cur_lev}x)", use_container_width=True):
+        asyncio.run(run_drift_action("SHORT", cur_lev))
+    ec3.button("🔴 EMERGENCY EXIT", use_container_width=True)
 
-    if tr_longs >= 4:
-        if ec1.button(f"🟢 Open LONG ({cur_lev}x)", use_container_width=True):
-            if execute_api_trade("LONG", cur_lev):
-                st.success("Order Successful!")
-                st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": f"LONG {cur_lev}x"})
-
-    if tr_shorts >= 4:
-        if ec2.button(f"🔴 Open SHORT ({cur_lev}x)", use_container_width=True):
-            if execute_api_trade("SHORT", cur_lev):
-                st.success("Order Successful!")
-                st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": f"SHORT {cur_lev}x"})
-    
-    if ec3.button("⚠️ CLOSE ALL", use_container_width=True):
-        st.warning("Closing all positions...")
-        st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": "EXIT ALL"})
-
-    if st.session_state.trade_history:
-        st.table(pd.DataFrame(st.session_state.trade_history).tail(5))
 else:
-    st.error("Connecting to Market Data Engine...")
+    st.error("Engine Offline - Check Market Data Source")
