@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import smtplib
 from email.mime.text import MIMEText
-from datetime import datetime
 from data_engine import fetch_base_data
 
 # 1. CORE SETUP
@@ -15,9 +14,15 @@ if 'perp_entry' not in st.session_state: st.session_state.perp_entry = 0.0
 theme = st.sidebar.radio("Theme Mode", ["Dark Mode", "Light Mode"], index=0)
 bg, txt, accent = ("#000", "#FFF", "#D4AF37") if theme == "Dark Mode" else ("#FFF", "#000", "#D4AF37")
 
-st.markdown(f"<style>.stApp {{ background-color: {bg}; color: {txt} !important; }} h1, h2, h3 {{ color: {accent} !important; }} .guide-box {{ padding: 15px; border-radius: 10px; background: #1a1a1a; border-left: 5px solid {accent}; margin-bottom: 20px; color: white; }}</style>", unsafe_allow_html=True)
+st.markdown(f"""
+<style>
+    .stApp {{ background-color: {bg}; color: {txt} !important; }} 
+    h1, h2, h3 {{ color: {accent} !important; }}
+    .guide-box {{ padding: 15px; border-radius: 10px; background: #1a1a1a; border-left: 5px solid {accent}; margin-bottom: 20px; color: white; }}
+</style>
+""", unsafe_allow_html=True)
 
-# 2. EMAIL SENTINEL
+# 2. EMAIL SENTINEL SETUP
 with st.expander("🔐 Email Sentinel Setup (Gmail Only)"):
     sender = st.text_input("Your Gmail Address")
     pwd = st.text_input("16-Digit App Password", type="password")
@@ -37,13 +42,12 @@ nav_cols = st.columns(len(tfs))
 for i, tf in enumerate(tfs):
     if nav_cols[i].button(tf): st.session_state.chart_tf = tf
 
-# 4. DATA ENGINE (Bybit Power)
-with st.spinner('Scanning Global Markets via Bybit...'):
+# 4. DATA FETCH
+with st.spinner('Gathering Market Intelligence...'):
     df, btc_p, err, status = fetch_base_data(st.session_state.chart_tf)
 
 if not status:
     st.error(f"⚠️ Market Access Denied: {err}")
-    st.info("💡 Tip: Bybit is much more stable than Binance for Cloud Dashboards.")
 else:
     price = df['close'].iloc[-1]
     c1, c2, c3 = st.columns(3)
