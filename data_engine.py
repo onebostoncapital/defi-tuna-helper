@@ -4,7 +4,7 @@ import pandas as pd
 def fetch_base_data(interval="1h"):
     try:
         y_interval = "1h" if interval == "12h" else interval
-        period_map = {"1m":"1d","5m":"1d","15m":"3d","30m":"5d","1h":"7d","4h":"14d","1d":"60d"}
+        period_map = {"1m":"1d", "5m":"1d", "15m":"3d", "30m":"5d", "1h":"7d", "4h":"14d", "1d":"60d"}
         
         sol = yf.Ticker("SOL-USD")
         df = sol.history(period=period_map.get(y_interval, "7d"), interval=y_interval)
@@ -26,5 +26,5 @@ def fetch_base_data(interval="1h"):
         btc_p = btc['Close'].iloc[-1] if not btc.empty else 0
 
         return df, btc_p, None, True
-    except Exception as e:
-        return None, 0, str(e), False
+    except Exception:
+        return None, 0, "Error", False
