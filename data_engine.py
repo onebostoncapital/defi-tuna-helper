@@ -1,9 +1,8 @@
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
 
 def fetch_base_data(interval="1h", symbol="SOL-USD"):
-    """Stable Universal Engine using Yahoo Finance for 24/7 Cloud Uptime."""
+    """Stable engine to prevent Binance blocks."""
     tf_map = {
         "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", 
         "1h": "1h", "4h": "1h", "12h": "1d", "1d": "1d"
@@ -17,13 +16,11 @@ def fetch_base_data(interval="1h", symbol="SOL-USD"):
         period = "7d" if y_tf in ["1m", "5m", "15m", "30m"] else "60d"
         sol_df = yf.download(tickers="SOL-USD", period=period, interval=y_tf, progress=False)
         
-        if sol_df.empty:
-            return None, btc_p, "Data Source Unavailable", False
+        if sol_df.empty: return None, btc_p, "Data Offline", False
 
         df = sol_df.copy()
         df.columns = [col[0].lower() if isinstance(col, tuple) else col.lower() for col in df.columns]
-        df = df.reset_index()
-        df = df.rename(columns={'datetime': 'date', 'index': 'date', 'Date': 'date', 'Datetime': 'date'})
+        df = df.reset_index().rename(columns={'Date': 'date', 'Datetime': 'date'})
         
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
         df['200_sma'] = df['close'].rolling(window=200).mean()
