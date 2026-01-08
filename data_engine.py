@@ -3,30 +3,37 @@ import pandas as pd
 
 def fetch_base_data(interval="1h"):
     try:
-        # Standardized Period Mapping for all 8 timeframes (including 12h)
+        # Step 1: Handle the 12h limitation of yfinance
+        fetch_interval = "1h" if interval == "12h" else interval
         period_map = {
             "1m": "1d", "5m": "1d", "15m": "3d", "30m": "5d", 
-            "1h": "7d", "4h": "14d", "12h": "30d", "1d": "60d"
+            "1h": "7d", "4h": "14d", "1d": "60d"
         }
-        target_period = period_map.get(interval, "7d")
+        target_period = period_map.get(fetch_interval, "7d")
 
-        # 1. Fetch SOL-USD
+        # Step 2: Fetch Data
         sol = yf.Ticker("SOL-USD")
-        df = sol.history(period=target_period, interval=interval)
+        df = sol.history(period=target_period, interval=fetch_interval)
         
         if df.empty:
-            return None, 0, f"No data for {interval}", False
+            return None, 0, "No data", False
 
-        # 2. Prevent KeyError: Standardize Date and Column names
+        # Step 3: Virtual 12h Calculation (Resampling)
+        if interval == "12h":
+            df = df.resample('12h').agg({
+                'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+            }).dropna()
+
+        # Step 4: Standardize Columns
         df = df.reset_index()
         df.rename(columns={df.columns[0]: 'date'}, inplace=True)
         df.columns = [str(c).lower() for c in df.columns]
 
-        # 3. Technical Indicators (20 EMA & 200 SMA)
+        # Step 5: Indicators (Rules: 20 EMA, 200 SMA)
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
         df['200_sma'] = df['close'].rolling(window=200).mean()
         
-        # 4. Fetch BTC Header Price
+        # Step 6: BTC Price
         btc = yf.Ticker("BTC-USD")
         btc_data = btc.history(period="1d")
         btc_p = btc_data['Close'].iloc[-1] if not btc_data.empty else 0
