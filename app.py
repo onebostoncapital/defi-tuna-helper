@@ -10,7 +10,7 @@ from data_engine import fetch_base_data
 # 1. DUAL HEARTBEAT SYSTEM
 st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
 
-# Heartbeat A: 1-second UI refresh for the LIVE TIMER
+# Heartbeat A: 1-second UI refresh for LIVE TIMER
 st_autorefresh(interval=1000, key="ui_counter") 
 
 # Heartbeat B: 30-second logic refresh for MARKET DATA
@@ -46,7 +46,7 @@ with st.sidebar:
     st.subheader(f"⏱️ Next Market Sync: {time_to_refresh}s")
     st.progress(time_to_refresh / 30)
 
-# 4. ANALYSIS & 8-JUDGE CONSENSUS
+# 4. ANALYSIS & 8-JUDGE CONSENSUS (NOW INCLUDING 1M)
 df, btc_p, err, status = fetch_base_data(st.session_state.chart_tf)
 
 if status:
@@ -67,22 +67,22 @@ if status:
             p, e, s = dm['close'].iloc[-1], dm['20_ema'].iloc[-1], dm['200_sma'].iloc[-1]
             if p > s and p > e: 
                 sig, clr = "🟢 LONG", "#0ff0"
-                if i >= 1: tr_longs += 1 # Exclude 1m from logic
+                tr_longs += 1 # 1m included in logic
             elif p < s and p < e: 
                 sig, clr = "🔴 SHORT", "#f44"
-                if i >= 1: tr_shorts += 1
+                tr_shorts += 1 # 1m included in logic
             else: sig, clr = "🟡 WAIT", "#888"
             mcols[i].markdown(f"**{t}**\n\n<span style='color:{clr};'>{sig}</span>", unsafe_allow_html=True)
 
-    # TIERED LEVERAGE LOGIC
+    # UPDATED TIERED LEVERAGE LOGIC (Out of 8 Judges)
     tr_count = max(tr_longs, tr_shorts)
-    lev_map = {4: 2, 5: 3, 6: 4, 7: 5}
+    # Scaled to allow 1m to push the consensus higher
+    lev_map = {4: 2, 5: 3, 6: 4, 7: 5, 8: 5} 
     cur_lev = lev_map.get(tr_count, 0) if tr_count >= 4 else 0
     conv_txt = f"⚡ TIER {tr_count} ({cur_lev}x)" if cur_lev > 0 else "🛑 NO CONSENSUS"
-    c3.metric("Execution Judge", f"{tr_count}/7 Align", conv_txt)
+    c3.metric("Execution Judge", f"{tr_count}/8 Align", conv_txt)
 
-    # 5. CHART WITH INDICATORS
-    # Restoring the 20 EMA and 200 SMA visibility
+    # 5. CHART WITH INDICATORS (20 EMA / 200 SMA)
     fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="Price")])
     fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6", width=2)))
     fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", width=2, dash='dot')))
@@ -109,12 +109,12 @@ if status:
 
     def send_trade_email(side, lev, consensus):
         try:
-            content = (f"SENTINEL DISPATCH\n"
+            content = (f"SENTINEL DISPATCH (8-JUDGE MODE)\n"
                        f"Side: {side}\n"
                        f"Base Size (5%): ${trade_size_usd:,.2f}\n"
                        f"Leverage: {lev}x\n"
                        f"Total Position: ${trade_size_usd * lev:,.2f}\n"
-                       f"Consensus: {consensus}/7\n"
+                       f"Consensus: {consensus}/8\n"
                        f"TP: {tp_val} | SL: {sl_val}")
             msg = MIMEText(content); msg['Subject'] = f"🛡️ {side} {lev}x Executed"; msg['From'] = sender; msg['To'] = sender
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as s:
@@ -123,7 +123,7 @@ if status:
         except Exception as e:
             st.error(f"Email Error: {e}"); return False
 
-    # 7. EXECUTION GATEWAY (MIN 4/7)
+    # 7. EXECUTION GATEWAY (MIN 4/8)
     if cur_lev > 0:
         side = "LONG" if tr_longs >= 4 else "SHORT"
         
@@ -142,9 +142,9 @@ if status:
                 st.session_state.trade_history.append({"Time": time.strftime("%H:%M:%S"), "Side": side, "Lev": f"{cur_lev}x", "Status": "Manual"})
                 st.success(f"Manual Alert Sent at {cur_lev}x Leverage.")
     else:
-        st.warning("⚠️ Min 4/7 Consensus required to enable Manual/Auto triggers.")
+        st.warning("⚠️ Min 4/8 Consensus required to enable Manual/Auto triggers.")
 
-    # 8. POSITION TRACKER (NON-CONSOLIDATED VIEW)
+    # 8. POSITION TRACKER
     if st.session_state.trade_history:
         st.write("### 📜 Active Entry Logs")
         st.table(pd.DataFrame(st.session_state.trade_history).tail(5))
