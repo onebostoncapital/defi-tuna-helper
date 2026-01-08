@@ -6,7 +6,7 @@ from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
 # 1. CORE IMPORTS WITH SAFETY GUARD
-# This prevents the "Oh No" screen if the server struggles with the library
+# This prevents the app from crashing if the server struggles with the library
 try:
     from solders.keypair import Keypair
     from driftpy.drift_client import DriftClient
@@ -38,10 +38,10 @@ if status:
     with st.sidebar:
         st.header("🔐 Drift Execution")
         if not SDK_READY:
-            st.error(f"⚠️ SDK Status: Error Loading Libraries")
+            st.error(f"⚠️ SDK Load Error")
             st.info(f"Details: {SDK_ERROR}")
         else:
-            st.success("✅ SDK Status: Ready")
+            st.success("✅ SDK Ready")
             
         rpc_url = st.text_input("Solana RPC", value="https://api.mainnet-beta.solana.com")
         pk_base58 = st.text_input("Private Key", type="password")
@@ -66,7 +66,7 @@ if status:
             else:
                 sig, clr, bg = "🟡 WAIT", "#888", "rgba(128,128,128,0.1)"
             
-            # FIXED: Corrected parameter name
+            # FIXED: Proper parameter name to avoid TypeError
             mcols[i].markdown(
                 f"<div style='border:1px solid {clr}; border-radius:5px; padding:10px; "
                 f"background-color:{bg}; text-align:center;'><b>{t}</b><br>"
@@ -128,4 +128,4 @@ if status:
     ec3.button("🔴 EMERGENCY EXIT", use_container_width=True)
 
 else:
-    st.warning("Fetching real-time market data... Please wait.")
+    st.warning("Fetching market data... If this takes more than 10 seconds, check your Internet connection.")
