@@ -14,7 +14,7 @@ from anchorpy import Wallet, Provider
 from solana.rpc.async_api import AsyncClient
 
 # 1. UI SETUP & HEARTBEAT
-st.set_page_config(page_title="Sreejan Sentinel (Drift Fix)", layout="wide")
+st.set_page_config(page_title="Sreejan Sentinel (Drift)", layout="wide")
 st_autorefresh(interval=1000, key="ui_pulse")
 
 if 'last_market_update' not in st.session_state: st.session_state.last_market_update = time.time()
@@ -22,11 +22,11 @@ if 'trade_history' not in st.session_state: st.session_state.trade_history = []
 
 # 2. SIDEBAR
 with st.sidebar:
-    st.header("🔐 Drift Credentials")
-    rpc_url = st.text_input("Solana RPC URL", placeholder="https://api.mainnet-beta.solana.com")
-    pk_base58 = st.text_input("Private Key (Base58)", type="password")
-    sub_id = st.number_input("Sub-Account ID", value=0, step=1)
-    total_cap = st.number_input("Equity ($)", value=1000.0)
+    st.header("🔐 Drift Dashboard")
+    rpc_url = st.text_input("Solana RPC URL", value="https://api.mainnet-beta.solana.com")
+    pk_base58 = st.text_input("Private Key", type="password")
+    sub_id = st.number_input("Sub-Account ID", value=0)
+    total_cap = st.number_input("Drift Equity ($)", value=1000.0)
     auto_pilot = st.toggle("🚀 ENABLE AUTO-PILOT")
     
     elapsed = time.time() - st.session_state.last_market_update
@@ -78,16 +78,15 @@ if status:
     fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=0,b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # 5. PROTECTED DRIFT ENGINE
+    # 5. FIXED DRIFT ENGINE
     async def run_drift_action(action_type, side=None, leverage=0):
-        if not pk_base58 or not rpc_url:
-            st.error("Missing Credentials! Please check sidebar.")
-            return None
+        if not pk_base58: return None
         try:
-            async_client = AsyncClient(rpc_url)
+            connection = AsyncClient(rpc_url)
             kp = Keypair.from_base58_string(pk_base58)
             wallet = Wallet(kp)
-            provider = Provider(async_client, wallet)
+            # FIX: Use the Provider object to wrap the connection and wallet
+            provider = Provider(connection, wallet)
             client = DriftClient(provider.connection, provider.wallet, account_subscription="polling")
             await client.subscribe()
             
@@ -98,12 +97,11 @@ if status:
             else: # CLOSE ALL
                 params = OrderParams(order_type=OrderType.Market(), market_index=0, direction=PositionDirection.Long(), base_asset_amount=0, reduce_only=True)
             
-            sig = await client.place_perp_order(params, sub_account_id=int(sub_id))
-            await client.unsubscribe()
-            await async_client.close()
+            sig = await client.place_perp_order(params, sub_account_id=sub_id)
+            await client.unsubscribe(); await connection.close()
             return sig
         except Exception as e:
-            st.error(f"Execution Error: {e}"); return None
+            st.error(f"Drift Error: {e}"); return None
 
     # 6. ACTION PANEL
     st.markdown("---")
@@ -112,16 +110,14 @@ if status:
     if cur_lev > 0:
         side = "LONG" if tr_longs >= 4 else "SHORT"
         if ec1.button(f"🚀 Execute Drift {side} ({cur_lev}x)", use_container_width=True):
-            with st.spinner("Talking to Solana..."):
-                sig = asyncio.run(run_drift_action("TRADE", side, cur_lev))
-                if sig:
-                    st.success(f"Trade Success! TX: {sig}")
+            with st.spinner("Executing trade..."):
+                if asyncio.run(run_drift_action("TRADE", side, cur_lev)):
+                    st.success("Trade Success!")
                     st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": f"{side} {cur_lev}x"})
 
     if ec2.button("🔴 CLOSE ALL POSITIONS", use_container_width=True):
         with st.spinner("Closing all..."):
-            sig = asyncio.run(run_drift_action("CLOSE"))
-            if sig: 
+            if asyncio.run(run_drift_action("CLOSE")): 
                 st.warning("Position Close Requested.")
                 st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": "CLOSE ALL"})
 
