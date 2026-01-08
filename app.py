@@ -6,7 +6,7 @@ from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
 # 1. UI INITIALIZATION
-st.set_page_config(page_title="Sreejan Sentinel Pro", layout="wide")
+st.set_page_config(page_title="Sreejan Sentinel: Final Stability", layout="wide")
 st_autorefresh(interval=1000, key="ui_pulse")
 
 if 'last_market_update' not in st.session_state: 
@@ -14,7 +14,7 @@ if 'last_market_update' not in st.session_state:
 if 'chart_tf' not in st.session_state:
     st.session_state.chart_tf = "1h"
 
-# 2. 66s REFRESH LOGIC
+# 2. 66s SYNC RULE
 elapsed = time.time() - st.session_state.last_market_update
 remaining = max(0, int(66 - elapsed))
 
@@ -23,24 +23,28 @@ if elapsed >= 66:
     st.session_state.last_market_update = time.time()
     st.rerun()
 
-# 3. GLOBAL HEADER
+# 3. GLOBAL PRICES
 df_main, btc_p, err, status = fetch_base_data("1h")
 
 if status:
     sol_p = df_main['close'].iloc[-1]
     
-    # Header Prices
+    # Large Header Metrics
     m1, m2 = st.columns(2)
-    m1.markdown(f"<h1 style='text-align: center;'>SOL: ${sol_p:,.2f}</h1>", unsafe_allow_html=True)
-    m2.markdown(f"<h1 style='text-align: center;'>BTC: ${btc_p:,.2f}</h1>", unsafe_allow_html=True)
+    m1.markdown(f"<h1 style='text-align: center; font-size: 60px;'>SOL: ${sol_p:,.2f}</h1>", unsafe_allow_html=True)
+    m2.markdown(f"<h1 style='text-align: center; font-size: 60px;'>BTC: ${btc_p:,.2f}</h1>", unsafe_allow_html=True)
 
     with st.sidebar:
-        st.header("⚙️ System Status")
-        st.success("✅ Dashboard Stable")
-        st.info(f"🔄 Next Global Sync: {remaining}s")
+        st.header("⚙️ Status")
+        st.info(f"🔄 Sync In: {remaining}s")
+        if st.button("Manual Refresh"):
+            st.cache_data.clear()
+            st.session_state.last_market_update = time.time()
+            st.rerun()
 
-    # 4. 8-JUDGE CONSENSUS MATRIX (RESTORED 12H)
+    # 4. THE 8-JUDGE MATRIX (RESTORED 12H)
     st.markdown("### 🏛️ Consensus Judge Matrix")
+    # Ensuring all 8 judges are present as per rules
     tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
     mcols = st.columns(8)
     tr_longs, tr_shorts = 0, 0
@@ -64,42 +68,42 @@ if status:
                 unsafe_allow_html=True
             )
 
-    # 5. FIXED GLOBAL BIAS BOX (GO LONG/SHORT + LEVERAGE)
+    # 5. THE GLOBAL BIAS BOX (GO LONG/SHORT + LEVERAGE)
     st.markdown("---")
     
-    # Rule: Confidence must be at least 4/8 to signal
+    # Calculate Signal Logic
     tr_count = max(tr_longs, tr_shorts)
     is_signal = tr_count >= 4
     direction = "GO LONG" if tr_longs >= tr_shorts else "GO SHORT"
     
-    # Leverage Mapping Rules
-    lev_map = {4: 2, 5: 3, 6: 4, 7: 5, 8: 5}
-    cur_lev = lev_map.get(tr_count, 0) if is_signal else 0
+    # Leverage Rules
+    lev_map = {4: "2x", 5: "3x", 6: "4x", 7: "5x", 8: "5x"}
+    final_lev = lev_map.get(tr_count, "Wait for Consensus") if is_signal else "Wait for Consensus"
     
-    # Colors for Signal
-    con_clr = "#0ff0" if direction == "GO LONG" and is_signal else "#f44" if is_signal else "#888"
-    display_dir = direction if is_signal else "NEUTRAL"
-    display_lev = f"{cur_lev}x" if is_signal else "Wait for Consensus"
+    # Style logic for the Box
+    box_clr = "#0ff0" if (direction == "GO LONG" and is_signal) else "#f44" if is_signal else "#555"
+    box_text = direction if is_signal else "NEUTRAL"
 
+    # Aggressive HTML injection to ensure the content is NOT missing
     st.markdown(
-        f"<div style='border:3px solid {con_clr}; border-radius:15px; padding:30px; "
-        f"background-color:rgba(0,0,0,0.4); text-align:center;'>"
-        f"<h1 style='margin:0; font-size: 50px;'>GLOBAL BIAS: <span style='color:{con_clr}'>{display_dir}</span></h1>"
-        f"<h3>Confidence: {tr_count}/8 Judges | Logic: 20 EMA + 200 SMA</h3>"
-        f"<h2 style='font-size: 40px;'>Recommended Leverage: <span style='color:{con_clr}'>{display_lev}</span></h2>"
-        f"</div>", unsafe_allow_html=True
+        f"""
+        <div style="background-color: #262730; border: 4px solid {box_clr}; border-radius: 15px; padding: 40px; text-align: center;">
+            <h1 style="color: white; margin-bottom: 0px; font-size: 50px;">GLOBAL BIAS: <span style="color: {box_clr};">{box_text}</span></h1>
+            <p style="color: #aaa; font-size: 20px;">Matrix Confidence: {tr_count}/8 Judges | Rules: 20 EMA + 200 SMA</p>
+            <h2 style="color: white; font-size: 45px; margin-top: 10px;">Leverage: <span style="color: {box_clr};">{final_lev}</span></h2>
+        </div>
+        """, unsafe_allow_html=True
     )
 
-    # 6. CHART NAVIGATION BAR
+    # 6. CHART NAVIGATION & CHART
     st.markdown("---")
-    st.write("### 📈 Chart Navigation")
+    st.write("### 📈 Chart Control")
     nav_btns = st.columns(8)
     for i, t in enumerate(tfs):
         if nav_btns[i].button(t, key=f"nav_{t}", use_container_width=True):
             st.session_state.chart_tf = t
             st.rerun()
 
-    # 7. DYNAMIC CHART
     df_chart, _, _, c_status = fetch_base_data(st.session_state.chart_tf)
     if c_status:
         fig = go.Figure(data=[go.Candlestick(
