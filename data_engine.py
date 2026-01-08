@@ -17,5 +17,4 @@ def fetch_base_data(interval="1h", symbol="SOL-USD"):
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
         df['200_sma'] = df['close'].rolling(window=200).mean()
         return df, btc_p, None, True
-    except: return None, 0.0, "Error", Falses
-        
+    except: return None, 0.0, "Error", False
