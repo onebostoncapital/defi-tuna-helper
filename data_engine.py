@@ -1,54 +1,48 @@
 import pandas as pd
-import requests
-import streamlit as st
+import yfinance as yf
+from datetime import datetime, timedelta
 
-def fetch_base_data(interval="60", symbol="SOLUSDT"):
+def fetch_base_data(interval="1h", symbol="SOL-USD"):
     """
-    Bulletproof Data Engine using Bybit API for Cloud Stability.
-    interval mapping: 1, 5, 15, 30, 60, 240, 720, D
+    Stable Universal Engine using Yahoo Finance.
+    Requires no API keys and works perfectly on the cloud.
     """
-    # Map Streamlit TFs to Bybit TFs
-    tf_map = {"1m":"1", "5m":"5", "15m":"15", "30m":"30", "1h":"60", "4h":"240", "12h":"720", "1d":"D"}
-    bybit_tf = tf_map.get(interval, "60")
+    # Map Streamlit intervals to Yahoo intervals
+    # Yahoo supports: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
+    tf_map = {
+        "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", 
+        "1h": "1h", "4h": "1h", "12h": "1d", "1d": "1d"
+    }
+    y_tf = tf_map.get(interval, "1h")
     
-    base_url = "https://api.bybit.com/v5/market/kline"
-    btc_url = "https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT"
+    # Adjust symbol for Yahoo Finance
+    y_symbol = "SOL-USD"
+    btc_symbol = "BTC-USD"
 
     try:
-        # 1. Fetch BTC Price
-        btc_res = requests.get(btc_url, timeout=10).json()
-        btc_price = float(btc_res['result']['list'][0]['lastPrice'])
+        # 1. Fetch BTC Price for the header
+        btc_data = yf.Ticker(btc_symbol).history(period="1d")
+        btc_price = float(btc_data['Close'].iloc[-1])
         
-        # 2. Fetch SOL Data
-        params = {
-            'category': 'linear',
-            'symbol': symbol,
-            'interval': bybit_tf,
-            'limit': 200
-        }
-        res = requests.get(base_url, params=params, timeout=10).json()
+        # 2. Fetch SOL Candlestick Data
+        # For small timeframes (1m-30m), we can only get the last 7 days
+        period = "7d" if y_tf in ["1m", "5m", "15m", "30m"] else "60d"
+        sol_df = yf.download(tickers=y_symbol, period=period, interval=y_tf, progress=False)
         
-        if res['retMsg'] != 'OK':
-            return None, btc_price, f"Bybit Error: {res['retMsg']}", False
+        if sol_df.empty:
+            return None, btc_price, "No Data Found on Yahoo", False
 
-        # 3. Process into Table
-        # Bybit format: [startTime, openPrice, highPrice, lowPrice, closePrice, volume, turnover]
-        raw_data = res['result']['list']
-        df = pd.DataFrame(raw_data, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'turnover'])
+        # 3. Format Table
+        df = sol_df.copy()
+        df.columns = [col[0].lower() if isinstance(col, tuple) else col.lower() for col in df.columns]
+        df = df.reset_index()
+        df = df.rename(columns={'datetime': 'date', 'index': 'date'})
         
-        # Bybit returns data newest to oldest, we need oldest to newest for EMA
-        df = df.iloc[::-1].reset_index(drop=True)
-        
-        for col in ['open', 'high', 'low', 'close']:
-            df[col] = df[col].astype(float)
-        
-        df['date'] = pd.to_datetime(df['time'].astype(float), unit='ms')
-        
-        # 4. Strategy Math
+        # 4. Strategy Math (EMA 20 & SMA 200)
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
         df['200_sma'] = df['close'].rolling(window=200).mean()
         
         return df, btc_price, None, True
         
     except Exception as e:
-        return None, 0.0, f"Connection Failed: {str(e)}", False
+        return None, 0.0, str(e), False
