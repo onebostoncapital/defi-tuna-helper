@@ -12,7 +12,7 @@ from data_engine import fetch_base_data
 # 1. CORE IDENTITY & STYLE
 st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
 
-# Persistent Settings Vault (Master Lock)
+# Master Lock for Settings
 if 'perp_entry' not in st.session_state: st.session_state.perp_entry = 0.0
 if 'perp_tp' not in st.session_state: st.session_state.perp_tp = 0.0
 if 'perp_sl' not in st.session_state: st.session_state.perp_sl = 0.0
@@ -31,13 +31,11 @@ st.markdown(f"""
     .signal-card {{ padding: 25px; border-radius: 15px; border: 2px solid {accent}; background: {"#050505" if theme=="Dark Mode" else "#f9f9f9"}; margin-bottom: 25px; }}
     .alarm-active {{ border: 2px solid #ff0000 !important; animation: blinker 1s linear infinite; }}
     @keyframes blinker {{ 50% {{ opacity: 0.5; }} }}
-    .stButton>button {{ width: 100%; border-radius: 5px; height: 3em; background-color: #111; color: white; border: 1px solid #333; }}
-    .stButton>button:hover {{ border-color: {accent}; color: {accent}; }}
-    .guide-box {{ padding: 15px; border-radius: 10px; background: #1a1a1a; border-left: 5px solid {accent}; margin-bottom: 20px; }}
+    .guide-box {{ padding: 15px; border-radius: 10px; background: #1a1a1a; border-left: 5px solid {accent}; margin-bottom: 20px; color: white; }}
 </style>
 """, unsafe_allow_html=True)
 
-# 2. EMAIL SENTINEL LOGIC
+# 2. EMAIL SENTINEL SETUP
 with st.expander("🔐 Email Sentinel Setup (Gmail Only)"):
     sender_email = st.text_input("Your Gmail Address", placeholder="example@gmail.com")
     app_password = st.text_input("16-Digit App Password", type="password")
@@ -74,19 +72,9 @@ def trigger_alarm(tf_desc, direction, price):
     if st.session_state.last_alert_time != current_time:
         send_battle_alert(tf_desc, direction, price)
         st.session_state.last_alert_time = current_time
+    components.html(f"<script>new Audio('https://actions.google.com/sounds/v1/alarms/emergency_siren.ogg').play(); alert('🚨 EMMANUEL SIGNAL: {direction} on {tf_desc}!');</script>", height=0)
 
-    alarm_js = f"""
-    <script>
-    var audio = new Audio('https://actions.google.com/sounds/v1/alarms/emergency_siren.ogg');
-    audio.play();
-    for (let i = 0; i < 5; i++) {{
-        setTimeout(() => {{ alert("🚨 EMMANUEL SIGNAL: {direction} on {tf_desc}!"); }}, i * 1500);
-    }}
-    </script>
-    """
-    components.html(alarm_js, height=0)
-
-# 4. NAVIGATION BUTTONS
+# 4. NAVIGATION
 st.title("🛡️ Sreejan Perp Forecaster Sentinel")
 tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
 nav_cols = st.columns(len(tfs))
@@ -94,13 +82,15 @@ for i, tf_option in enumerate(tfs):
     if nav_cols[i].button(tf_option, key=f"btn_{tf_option}"):
         st.session_state.chart_tf = tf_option
 
-# 5. DATA FETCH
-try:
-    df, btc_p, _, status = fetch_base_data(st.session_state.chart_tf)
-except:
-    status = False
+# 5. DATA FETCH WITH LOADING SPINNER
+with st.spinner('Gathering Market Intelligence...'):
+    df, btc_p, err_msg, status = fetch_base_data(st.session_state.chart_tf)
 
-if status:
+if not status:
+    st.error(f"⚠️ Market Connection Lost: {err_msg if err_msg else 'Check your Internet'}")
+    if st.button("Force Reconnect"):
+        st.rerun()
+else:
     price = df['close'].iloc[-1]
     
     # 6. HEADER METRICS
@@ -108,9 +98,9 @@ if status:
     c1.metric("₿ BTC", f"${btc_p:,.2f}")
     c2.metric(f"S SOL ({st.session_state.chart_tf})", f"${price:,.2f}")
 
-    # 7. STRATEGY GUIDE (New Section)
+    # 7. STRATEGY GUIDE
     st.markdown("---")
-    with st.expander("📖 How to Read the Strongest Signals", expanded=True):
+    with st.expander("📖 How to Find the Strongest Signals", expanded=True):
         st.markdown(f"""
         <div class="guide-box">
         <strong>Look for Alignment:</strong> This is when the judges (timeframes) agree with each other. <br><br>
@@ -149,11 +139,10 @@ if status:
     fig.update_layout(template="plotly_dark" if theme=="Dark Mode" else "plotly_white", paper_bgcolor=bg, plot_bgcolor=bg, height=500, xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
-    # 10. WAR ROOM (Master Lock)
+    # 10. WAR ROOM
     st.markdown(f'<div class="signal-card {"alarm-active" if conviction=="STRONG" else ""}">', unsafe_allow_html=True)
     st.subheader("✍️ War Room: Manual Entry & Safety Soul")
     lev = st.sidebar.slider("Leverage", 1.0, 50.0, 5.0)
-    cap = st.sidebar.number_input("Total Capital ($)", value=10000.0)
     
     wc1, wc2, wc3 = st.columns(3)
     with wc1:
