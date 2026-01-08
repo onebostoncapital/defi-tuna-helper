@@ -1,94 +1,85 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 import time
 from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
-# 1. SETUP & REFRESH RULE
+# 1. SETUP
 st.set_page_config(page_title="Sreejan Sentinel Pro", layout="wide")
-st_autorefresh(interval=4000, key="global_sync_pulse")
+st_autorefresh(interval=5000, key="global_sync")
 
-# 2. STATE MANAGEMENT
-tfs_list = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
+# 2. PERSISTENT MEMORY (Prevents Blanks)
+tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
 
-if 'master_matrix' not in st.session_state:
-    st.session_state.master_matrix = {t: {"sig": "SYNCING", "clr": "#555"} for t in tfs_list}
-if 'master_signal' not in st.session_state:
-    st.session_state.master_signal = {"bias": "INITIALIZING", "lev": "WAITING", "conf": 0, "clr": "#444"}
+if 'p_matrix' not in st.session_state:
+    st.session_state.p_matrix = {t: {"sig": "FETCHING", "clr": "#444"} for t in tfs}
+if 'p_signal' not in st.session_state:
+    st.session_state.p_signal = {"bias": "CALCULATING", "lev": "SYNCING", "conf": 0, "clr": "#444"}
 
-# 3. THE CONSENSUS ENGINE
+# 3. ATOMIC CALCULATION
 l_votes, s_votes = 0, 0
-current_results = {}
+current_run = {}
 
-# Forced loop to ensure consensus accuracy across all 8 judges
-for t in tfs_list:
+for t in tfs:
     df, _, _, ok = fetch_base_data(t)
     if ok and not df.empty:
-        # Rules: Price vs EMA 20 AND Price vs SMA 200
         p, e, s = df['close'].iloc[-1], df['20_ema'].iloc[-1], df['200_sma'].iloc[-1]
-        
         if p > s and p > e:
-            current_results[t] = {"sig": "🟢 LONG", "clr": "#0ff0"}
+            current_run[t] = {"sig": "🟢 LONG", "clr": "#0ff0"}
             l_votes += 1
         elif p < s and p < e:
-            current_results[t] = {"sig": "🔴 SHORT", "clr": "#f44"}
+            current_run[t] = {"sig": "🔴 SHORT", "clr": "#f44"}
             s_votes += 1
         else:
-            current_results[t] = {"sig": "🟡 WAIT", "clr": "#f1c40f"}
+            current_run[t] = {"sig": "🟡 WAIT", "clr": "#f1c40f"}
     else:
-        # Use previous known state if API fails to prevent blank boxes
-        current_results[t] = st.session_state.master_matrix.get(t, {"sig": "⚪ SYNC", "clr": "#555"})
+        # Keep old data if fetch fails to prevent the "Grey Box" issue
+        current_run[t] = st.session_state.p_matrix.get(t, {"sig": "⚪ SYNC", "clr": "#555"})
 
-# Update Persistent State
-st.session_state.master_matrix = current_results
+# Only update Global Signal if we have a full consensus check
+st.session_state.p_matrix = current_run
 conf = max(l_votes, s_votes)
 
-# Rule: Global Bias only triggers if 4+ judges agree
 if conf >= 4:
     side = "GO LONG" if l_votes >= s_votes else "GO SHORT"
-    # Leverage Rules
     lev_map = {4: "2x", 5: "3x", 6: "4x", 7: "5x", 8: "5x"}
-    st.session_state.master_signal = {
+    st.session_state.p_signal = {
         "bias": side, "lev": f"USE {lev_map.get(conf, '2x')} LEVERAGE",
         "conf": conf, "clr": "#0ff0" if "LONG" in side else "#f44"
     }
 else:
-    st.session_state.master_signal = {"bias": "NEUTRAL", "lev": "WAIT FOR CONSENSUS", "conf": conf, "clr": "#555"}
+    st.session_state.p_signal = {"bias": "NEUTRAL", "lev": "WAIT FOR CONSENSUS", "conf": conf, "clr": "#888"}
 
-# 4. UI: LIVE TICKERS
+# 4. RENDER UI
 df_h, btc_p, _, _ = fetch_base_data("1h")
 sol_p = df_h['close'].iloc[-1] if df_h is not None else 0
-c1, c2 = st.columns(2)
-c1.markdown(f"<h1 style='text-align:center; font-size:65px;'>SOL: ${sol_p:,.2f}</h1>", unsafe_allow_html=True)
-c2.markdown(f"<h1 style='text-align:center; font-size:65px;'>BTC: ${btc_p:,.2f}</h1>", unsafe_allow_html=True)
 
-# 5. UI: THE MATRIX
+c1, c2 = st.columns(2)
+c1.markdown(f"<h1 style='text-align:center; font-size:60px;'>SOL: ${sol_p:,.2f}</h1>", unsafe_allow_html=True)
+c2.markdown(f"<h1 style='text-align:center; font-size:60px;'>BTC: ${btc_p:,.2f}</h1>", unsafe_allow_html=True)
+
+# 5. RENDER MATRIX (Restored Alignment)
 st.write("### 🏛️ Consensus Judge Matrix")
 cols = st.columns(8)
-for i, t in enumerate(tfs_list):
-    item = st.session_state.master_matrix[t]
+for i, t in enumerate(tfs):
+    item = st.session_state.p_matrix[t]
     cols[i].markdown(
-        f"""<div style="border:2px solid {item['clr']}; border-radius:10px; padding:15px; text-align:center; background: rgba(0,0,0,0.3); min-height:100px;">
-            <b style="font-size:18px; color:white;">{t}</b><br>
-            <span style="color:{item['clr']}; font-size:16px; font-weight:bold;">{item['sig']}</span>
+        f"""<div style="border:2px solid {item['clr']}; border-radius:10px; padding:15px; text-align:center; background: rgba(0,0,0,0.4); min-height:85px;">
+            <b style="color:white; font-size:16px;">{t}</b><br>
+            <span style="color:{item['clr']}; font-weight:bold;">{item['sig']}</span>
         </div>""", unsafe_allow_html=True
     )
 
-# 6. UI: THE SIGNAL BOX
-ms = st.session_state.master_signal
+# 6. RENDER GLOBAL BIAS (Full Accuracy)
+ps = st.session_state.p_signal
 st.markdown("---")
 st.markdown(
     f"""
-    <div style="background-color: #161a1e; border: 5px solid {ms['clr']}; border-radius: 20px; padding: 60px; text-align: center;">
-        <p style="color: #888; margin: 0; font-size: 20px; letter-spacing: 3px;">SREEJAN INTELLIGENCE CONSENSUS</p>
-        <h1 style="color: white; font-size: 95px; margin: 15px 0; font-weight: 900;">
-            GLOBAL BIAS: <span style="color: {ms['clr']};">{ms['bias']}</span>
-        </h1>
-        <h2 style="color: {ms['clr']}; font-size: 60px; margin: 10px 0;">{ms['lev']}</h2>
-        <p style="color: #666; font-size: 18px; margin-top: 30px;">
-            Confidence: {ms['conf']}/8 Judges | Logic: EMA 20 + SMA 200
-        </p>
+    <div style="background-color: #161a1e; border: 5px solid {ps['clr']}; border-radius: 20px; padding: 60px; text-align: center;">
+        <p style="color:#888; font-size:18px; letter-spacing:2px;">SREEJAN INTELLIGENCE CONSENSUS</p>
+        <h1 style="color: white; font-size: 80px; margin: 15px 0;">GLOBAL BIAS: <span style="color: {ps['clr']};">{ps['bias']}</span></h1>
+        <h2 style="color: {ps['clr']}; font-size: 50px;">{ps['lev']}</h2>
+        <p style="color: #666; font-size: 16px;">Confidence: {ps['conf']}/8 Judges | Logic: EMA 20 + SMA 200</p>
     </div>
     """, unsafe_allow_html=True
 )
