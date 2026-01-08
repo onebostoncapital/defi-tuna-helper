@@ -1,6 +1,4 @@
 pandas
 yfinance
 plotly
-solana
-solders
 streamlit-autorefresh
