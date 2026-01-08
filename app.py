@@ -5,7 +5,7 @@ import time, asyncio
 from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
-# Core Drift Imports (Wrapped for safety)
+# 1. CORE IMPORTS (Wrapped to prevent "Oh No" crashes)
 try:
     from solders.keypair import Keypair
     from driftpy.drift_client import DriftClient
@@ -14,32 +14,41 @@ try:
     from anchorpy import Wallet, Provider
     from solana.rpc.async_api import AsyncClient
     DRIFT_READY = True
-except:
+except Exception as e:
     DRIFT_READY = False
+    DRIFT_ERR = str(e)
 
-# 1. UI SETUP
+# 2. UI INITIALIZATION
 st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
 st_autorefresh(interval=1000, key="ui_pulse")
 
-# 2. DATA FETCH (BTC & SOL PRICE)
+# 3. DATA FETCH (BTC & SOL PRICE RESTORED)
 df, btc_p, err, status = fetch_base_data("1h")
 
-# 3. HEADER & SIDEBAR
 if status:
     sol_p = df['close'].iloc[-1]
-    c1, c2, c3 = st.columns([2, 2, 4])
-    c1.metric("🪙 SOLANA PRICE", f"${sol_p:,.2f}")
-    c2.metric("₿ BITCOIN PRICE", f"${btc_p:,.2f}")
     
+    # TOP METRICS BAR
+    m1, m2, m3 = st.columns([2, 2, 4])
+    m1.metric("🪙 SOLANA PRICE", f"${sol_p:,.2f}")
+    m2.metric("₿ BITCOIN PRICE", f"${btc_p:,.2f}")
+    
+    # SIDEBAR SETTINGS
     with st.sidebar:
         st.header("🔐 Drift Execution")
-        rpc_url = st.text_input("RPC URL", value="https://api.mainnet-beta.solana.com")
+        if not DRIFT_READY:
+            st.error(f"⚠️ SDK Load Error: {DRIFT_ERR}")
+        rpc_url = st.text_input("Solana RPC", value="https://api.mainnet-beta.solana.com")
         pk_base58 = st.text_input("Private Key", type="password")
-        total_cap = st.number_input("Margin ($)", value=1000.0)
-        auto_pilot = st.toggle("🚀 AUTO-PILOT")
-        st.write(f"SDK Status: {'✅ Ready' if DRIFT_READY else '❌ Error'}")
+        total_cap = st.number_input("Trading Margin ($)", value=1000.0)
+        auto_pilot = st.toggle("🚀 AUTO-PILOT MODE")
+        
+        # SYNC TIMER
+        if 'last_market_update' not in st.session_state: st.session_state.last_market_update = time.time()
+        elapsed = time.time() - st.session_state.last_market_update
+        st.write(f"⏱️ Matrix Sync: {max(0, int(30 - elapsed))}s")
 
-    # 4. 8-JUDGE CONSENSUS MATRIX
+    # 4. 8-JUDGE CONSENSUS MATRIX (RESTORED)
     st.markdown("### 🏛️ Consensus Judge Matrix")
     tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
     mcols = st.columns(8); tr_longs, tr_shorts = 0, 0
@@ -65,7 +74,7 @@ if status:
                 unsafe_allow_html=True
             )
 
-    # 5. CONSOLIDATED CONSENSUS BOX
+    # 5. CONSOLIDATED CONSENSUS BOX (RESTORED)
     st.markdown("---")
     tr_count = max(tr_longs, tr_shorts)
     final_dir = "LONG" if tr_longs >= tr_shorts else "SHORT"
@@ -81,12 +90,14 @@ if status:
         f"</div>", unsafe_allow_html=True
     )
 
-    # 6. CHART
+    # 6. CHARTING
     fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="SOL")])
+    fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6")))
+    fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", dash='dot')))
     fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=0,b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # 7. DRIFT ENGINE (SHORT & LONG SUPPORT)
+    # 7. DRIFT EXECUTION LOGIC
     async def run_drift_action(side, leverage):
         if not pk_base58 or not DRIFT_READY: return None
         try:
@@ -107,14 +118,14 @@ if status:
         except Exception as e:
             st.error(f"Execution Error: {e}"); return None
 
-    # 8. EXECUTION BUTTONS
+    # 8. ACTION BUTTONS
     st.markdown("---")
     ec1, ec2, ec3 = st.columns(3)
     if ec1.button(f"🚀 Open Drift LONG ({cur_lev}x)", use_container_width=True):
-        asyncio.run(run_drift_action("LONG", cur_lev))
+        if DRIFT_READY: asyncio.run(run_drift_action("LONG", cur_lev))
     if ec2.button(f"🔻 Open Drift SHORT ({cur_lev}x)", use_container_width=True):
-        asyncio.run(run_drift_action("SHORT", cur_lev))
+        if DRIFT_READY: asyncio.run(run_drift_action("SHORT", cur_lev))
     ec3.button("🔴 EMERGENCY EXIT", use_container_width=True)
 
 else:
-    st.error("Engine Offline - Check Market Data Source")
+    st.error("Engine Initializing... Please wait for market data.")
