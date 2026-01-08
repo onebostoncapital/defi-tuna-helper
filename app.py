@@ -46,17 +46,19 @@ with st.sidebar:
     st.subheader(f"⏱️ Next Market Sync: {time_to_refresh}s")
     st.progress(time_to_refresh / 30)
 
-# 4. ANALYSIS & 8-JUDGE CONSENSUS (NOW INCLUDING 1M)
+# 4. ANALYSIS & 8-JUDGE CONSENSUS MATRIX
 df, btc_p, err, status = fetch_base_data(st.session_state.chart_tf)
 
 if status:
     price = df['close'].iloc[-1]
+    
+    # TOP METRICS ROW
     c1, c2, c3 = st.columns(3)
     c1.metric("₿ BTC Price", f"${btc_p:,.2f}")
     c2.metric(f"S SOL ({st.session_state.chart_tf})", f"${price:,.2f}")
 
-    # THE 8 JUDGES
-    st.markdown("---")
+    # --- RESTORED CONSENSUS MATRIX BOXES ---
+    st.markdown("### 🏛️ Consensus Judge Matrix (8-Judges)")
     tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
     mcols = st.columns(8)
     tr_longs, tr_shorts = 0, 0
@@ -66,28 +68,33 @@ if status:
         if sm:
             p, e, s = dm['close'].iloc[-1], dm['20_ema'].iloc[-1], dm['200_sma'].iloc[-1]
             if p > s and p > e: 
-                sig, clr = "🟢 LONG", "#0ff0"
-                tr_longs += 1 # 1m included in logic
+                sig, clr, box_bg = "🟢 LONG", "#0ff0", "rgba(0, 255, 0, 0.1)"
+                tr_longs += 1
             elif p < s and p < e: 
-                sig, clr = "🔴 SHORT", "#f44"
-                tr_shorts += 1 # 1m included in logic
-            else: sig, clr = "🟡 WAIT", "#888"
-            mcols[i].markdown(f"**{t}**\n\n<span style='color:{clr};'>{sig}</span>", unsafe_allow_html=True)
+                sig, clr, box_bg = "🔴 SHORT", "#f44", "rgba(255, 0, 0, 0.1)"
+                tr_shorts += 1
+            else: 
+                sig, clr, box_bg = "🟡 WAIT", "#888", "rgba(128, 128, 128, 0.1)"
+            
+            mcols[i].markdown(
+                f"<div style='border:1px solid {clr}; border-radius:5px; padding:10px; background-color:{box_bg}; text-align:center;'>"
+                f"<b>{t}</b><br><span style='color:{clr}; font-weight:bold;'>{sig}</span>"
+                f"</div>", unsafe_allow_html=True
+            )
 
-    # UPDATED TIERED LEVERAGE LOGIC (Out of 8 Judges)
+    # --- TIERED LEVERAGE & CONSENSUS TAB ---
     tr_count = max(tr_longs, tr_shorts)
-    # Scaled to allow 1m to push the consensus higher
     lev_map = {4: 2, 5: 3, 6: 4, 7: 5, 8: 5} 
     cur_lev = lev_map.get(tr_count, 0) if tr_count >= 4 else 0
     conv_txt = f"⚡ TIER {tr_count} ({cur_lev}x)" if cur_lev > 0 else "🛑 NO CONSENSUS"
     c3.metric("Execution Judge", f"{tr_count}/8 Align", conv_txt)
 
-    # 5. CHART WITH INDICATORS (20 EMA / 200 SMA)
+    # 5. CHART WITH 20 EMA / 200 SMA
     fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="Price")])
     fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6", width=2)))
     fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", width=2, dash='dot')))
     
-    fig.update_layout(template="plotly_dark", paper_bgcolor=bg, plot_bgcolor=bg, height=450, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
+    fig.update_layout(template="plotly_dark", paper_bgcolor=bg, plot_bgcolor=bg, height=450, xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
     # Timeframe Navigation
@@ -97,9 +104,9 @@ if status:
             st.session_state.chart_tf = tf_opt
             st.rerun()
 
-    # 6. WAR ROOM & EMAIL DISPATCH
+    # 6. WAR ROOM
     st.markdown("---")
-    st.subheader("✍️ War Room: Execution Details")
+    st.subheader("✍️ War Room: Strategy Execution")
     wc1, wc2, wc3 = st.columns(3)
     entry_req = wc1.number_input("Entry Trigger Price", value=float(price))
     tp_val = wc2.number_input("Predefined Take Profit", value=float(price*1.05))
@@ -109,7 +116,7 @@ if status:
 
     def send_trade_email(side, lev, consensus):
         try:
-            content = (f"SENTINEL DISPATCH (8-JUDGE MODE)\n"
+            content = (f"SENTINEL DISPATCH\n"
                        f"Side: {side}\n"
                        f"Base Size (5%): ${trade_size_usd:,.2f}\n"
                        f"Leverage: {lev}x\n"
@@ -127,24 +134,21 @@ if status:
     if cur_lev > 0:
         side = "LONG" if tr_longs >= 4 else "SHORT"
         
-        # Auto-Pilot Logic
         if auto_pilot and (time.time() - st.session_state.last_trade_time > 300):
-            price_condition = (side == "LONG" and price >= entry_req) or (side == "SHORT" and price <= entry_req)
-            if price_condition:
+            if (side == "LONG" and price >= entry_req) or (side == "SHORT" and price <= entry_req):
                 if send_trade_email(side, cur_lev, tr_count):
                     st.session_state.last_trade_time = time.time()
-                    st.session_state.trade_history.append({"Time": time.strftime("%H:%M:%S"), "Side": side, "Lev": f"{cur_lev}x", "Status": "Auto"})
-                    st.success(f"Auto-Pilot: {side} {cur_lev}x Dispatched.")
+                    st.session_state.trade_history.append({"Time": time.strftime("%H:%M:%S"), "Side": side, "Lev": f"{cur_lev}x"})
+                    st.success("Auto-Pilot Signal Dispatched.")
 
-        # Manual Trigger
         if st.button("🚀 MANUAL: Trigger Separate Entry Alert"):
             if send_trade_email(side, cur_lev, tr_count):
-                st.session_state.trade_history.append({"Time": time.strftime("%H:%M:%S"), "Side": side, "Lev": f"{cur_lev}x", "Status": "Manual"})
-                st.success(f"Manual Alert Sent at {cur_lev}x Leverage.")
+                st.session_state.trade_history.append({"Time": time.strftime("%H:%M:%S"), "Side": side, "Lev": f"{cur_lev}x"})
+                st.success("Manual Alert Sent Successfully.")
     else:
-        st.warning("⚠️ Min 4/8 Consensus required to enable Manual/Auto triggers.")
+        st.warning("⚠️ Min 4/8 Consensus required for execution.")
 
     # 8. POSITION TRACKER
     if st.session_state.trade_history:
-        st.write("### 📜 Active Entry Logs")
+        st.write("### 📜 Recent Entries (Separate)")
         st.table(pd.DataFrame(st.session_state.trade_history).tail(5))
