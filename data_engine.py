@@ -1,6 +1,8 @@
 import pandas as pd
 import yfinance as yf
+import streamlit as st
 
+@st.cache_data(ttl=30) # Cache data for 30 seconds to stop the lag
 def fetch_base_data(interval="1h", symbol="SOL-USD"):
     tf_map = {
         "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", 
@@ -9,10 +11,11 @@ def fetch_base_data(interval="1h", symbol="SOL-USD"):
     y_tf = tf_map.get(interval, "1h")
     
     try:
+        # For BTC, we only need the latest price
         btc = yf.Ticker("BTC-USD").history(period="1d")
         btc_p = float(btc['Close'].iloc[-1]) if not btc.empty else 0.0
         
-        # Period set to ensure 200 SMA calculation is possible
+        # Download data
         period = "7d" if y_tf in ["1m", "5m", "15m", "30m"] else "max"
         df = yf.download(tickers=symbol, period=period, interval=y_tf, progress=False)
         
@@ -26,5 +29,5 @@ def fetch_base_data(interval="1h", symbol="SOL-USD"):
         df['200_sma'] = df['close'].rolling(window=200).mean()
         
         return df, btc_p, None, True
-    except Exception as e:
-        return None, 0.0, str(e), False
+    except Exception:
+        return None, 0.0, "Connection Error", False
