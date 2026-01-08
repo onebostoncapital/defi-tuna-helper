@@ -15,7 +15,7 @@ def fetch_base_data(interval="1h", symbol="SOL-USD"):
         btc = yf.Ticker("BTC-USD").history(period="1d")
         btc_p = float(btc['Close'].iloc[-1]) if not btc.empty else 0.0
         
-        # 2. Fetch SOL Data (60d window for SMA 200)
+        # 2. Fetch SOL Data
         period = "7d" if y_tf in ["1m", "5m", "15m", "30m"] else "60d"
         sol_df = yf.download(tickers="SOL-USD", period=period, interval=y_tf, progress=False)
         
