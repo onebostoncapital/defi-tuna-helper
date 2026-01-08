@@ -1,20 +1,40 @@
-import pandas as pd
 import yfinance as yf
-import streamlit as st
+import pandas as pd
 
-@st.cache_data(ttl=30)
-def fetch_base_data(interval="1h", symbol="SOL-USD"):
-    tf_map = {"1m":"1m", "5m":"5m", "15m":"15m", "30m":"30m", "1h":"1h", "4h":"1h", "12h":"1d", "1d":"1d"}
-    y_tf = tf_map.get(interval, "1h")
+def fetch_base_data(interval="1h"):
+    """
+    Fetches SOL-USD data and BTC-USD price for the dashboard.
+    Intervals supported: 1m, 5m, 15m, 30m, 1h, 4h, 1d
+    """
     try:
-        btc = yf.Ticker("BTC-USD").history(period="1d")
-        btc_p = float(btc['Close'].iloc[-1]) if not btc.empty else 0.0
-        period = "7d" if y_tf in ["1m", "5m", "15m", "30m"] else "max"
-        df = yf.download(tickers=symbol, period=period, interval=y_tf, progress=False)
-        if df.empty: return None, btc_p, "Offline", False
-        df.columns = [col[0].lower() if isinstance(col, tuple) else col.lower() for col in df.columns]
-        df = df.reset_index().rename(columns={'Date': 'date', 'Datetime': 'date'})
-        df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
-        df['200_sma'] = df['close'].rolling(window=200).mean()
-        return df, btc_p, None, True
-    except: return None, 0.0, "Error", False
+        # Mapping intervals to yfinance periods to avoid errors
+        period_map = {
+            "1m": "1d", "5m": "1d", "15m": "3d", "30m": "5d", 
+            "1h": "7d", "4h": "14d", "12h": "30d", "1d": "60d"
+        }
+        target_period = period_map.get(interval, "7d")
+
+        # 1. Fetch SOLANA Data
+        sol = yf.Ticker("SOL-USD")
+        df = sol.history(period=target_period, interval=interval)
+        
+        if df.empty:
+            return None, 0, "No data found for SOL", False
+
+        # 2. Calculate Rules (20 EMA & 200 SMA)
+        df['20_ema'] = df['Close'].ewm(span=20, adjust=False).mean()
+        df['200_sma'] = df['Close'].rolling(window=200).mean()
+        
+        # Clean column names for app.py
+        df = df.reset_index()
+        df.columns = [c.lower() for c in df.columns]
+        
+        # 3. Fetch BITCOIN Price for header
+        btc = yf.Ticker("BTC-USD")
+        btc_data = btc.history(period="1d")
+        btc_price = btc_data['Close'].iloc[-1] if not btc_data.empty else 0
+
+        return df, btc_price, None, True
+
+    except Exception as e:
+        return None, 0, str(e), False
