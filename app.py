@@ -9,12 +9,13 @@ from data_engine import fetch_base_data
 from solders.keypair import Keypair
 from driftpy.drift_client import DriftClient
 from driftpy.constants.numeric_constants import BASE_PRECISION
-from driftpy.types import OrderType, PositionDirection, OrderParams, MarketType
-from anchorpy import Wallet
+from driftpy.types import OrderType, PositionDirection, OrderParams
+from anchorpy import Wallet, Provider
+from solana.rpc.async_api import AsyncClient
 
 # 1. PAGE SETUP & UI HEARTBEAT
 st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
-st_autorefresh(interval=1000, key="ui_pulse") # 1s clock
+st_autorefresh(interval=1000, key="ui_pulse")
 
 if 'last_market_update' not in st.session_state: st.session_state.last_market_update = time.time()
 if 'chart_tf' not in st.session_state: st.session_state.chart_tf = "1h"
@@ -70,30 +71,34 @@ if status:
     fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=0,b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # 5. EXECUTION ENGINE
-    async def execute_trade(side, leverage):
+    # 5. FIXED EXECUTION ENGINE (SOLVES 'STR' ERROR)
+    async def execute_drift_action(action_type, side=None, leverage=0):
         if not pk_base58: return None
         try:
             kp = Keypair.from_base58_string(pk_base58)
-            client = DriftClient(rpc_url, Wallet(kp), account_subscription="polling")
-            usd_val = total_cap * 0.05 * leverage
-            sol_qty = int((usd_val / price) * BASE_PRECISION)
-            direction = PositionDirection.Long() if side == "LONG" else PositionDirection.Short()
-            params = OrderParams(order_type=OrderType.Market(), market_index=0, direction=direction, base_asset_amount=sol_qty)
-            return await client.place_perp_order(params, sub_account_id=sub_id)
+            connection = AsyncClient(rpc_url)
+            wallet = Wallet(kp)
+            # Create a provider correctly to avoid the 'str' error
+            provider = Provider(connection, wallet)
+            client = DriftClient(provider.connection, provider.wallet, account_subscription="polling")
+            
+            # Start the client subscription
+            await client.subscribe()
+            
+            if action_type == "TRADE":
+                usd_val = total_cap * 0.05 * leverage
+                sol_qty = int((usd_val / price) * BASE_PRECISION)
+                direction = PositionDirection.Long() if side == "LONG" else PositionDirection.Short()
+                params = OrderParams(order_type=OrderType.Market(), market_index=0, direction=direction, base_asset_amount=sol_qty)
+            else: # CLOSE ALL
+                params = OrderParams(order_type=OrderType.Market(), market_index=0, direction=PositionDirection.Long(), base_asset_amount=0, reduce_only=True)
+            
+            sig = await client.place_perp_order(params, sub_account_id=sub_id)
+            await client.unsubscribe()
+            await connection.close()
+            return sig
         except Exception as e:
-            st.error(f"Execution Error: {e}"); return None
-
-    async def close_all_perp_positions():
-        if not pk_base58: return None
-        try:
-            kp = Keypair.from_base58_string(pk_base58)
-            client = DriftClient(rpc_url, Wallet(kp), account_subscription="polling")
-            # Fetches current position to reduce to zero 
-            params = OrderParams(order_type=OrderType.Market(), market_index=0, direction=PositionDirection.Long(), base_asset_amount=0, reduce_only=True)
-            return await client.place_perp_order(params, sub_account_id=sub_id)
-        except Exception as e:
-            st.error(f"Close Error: {e}"); return None
+            st.error(f"Execution Error: {str(e)}"); return None
 
     # 6. TRIGGER GATEWAY
     st.markdown("---")
@@ -104,17 +109,17 @@ if status:
         
         # AUTO-PILOT HEART
         if auto_pilot and (time.time() - st.session_state.last_trade_time > 300):
-            tx = asyncio.run(execute_trade(side, cur_lev))
+            tx = asyncio.run(execute_drift_action("TRADE", side, cur_lev))
             if tx:
                 st.session_state.last_trade_time = time.time()
                 st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": f"AUTO {side}", "Lev": cur_lev})
         
         if ec1.button(f"🚀 Manual {side} ({cur_lev}x)"):
-            tx = asyncio.run(execute_trade(side, cur_lev))
-            if tx: st.success("Trade Dispatched")
+            tx = asyncio.run(execute_drift_action("TRADE", side, cur_lev))
+            if tx: st.success(f"Trade Success: {tx}")
 
     if ec2.button("🔴 CLOSE ALL POSITIONS", use_container_width=True):
-        tx = asyncio.run(close_all_perp_positions())
+        tx = asyncio.run(execute_drift_action("CLOSE"))
         if tx: 
             st.warning("All Positions Closing...")
             st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Action": "CLOSE ALL", "Lev": "-"})
