@@ -46,8 +46,8 @@ side = "GO LONG" if longs >= shorts else "GO SHORT"
 lev_map = {4: "2x", 5: "3x", 6: "4x", 7: "5x", 8: "5x"}
 lev_val = lev_map.get(confidence, "No Signal")
 
-# Color and Text Formatting
-box_color = "#0ff0" if (is_valid and "LONG" in side) else "#f44" if is_active else "#555"
+# FIX: Changed 'is_active' to 'is_valid' to match variable name above
+box_color = "#0ff0" if (is_valid and "LONG" in side) else "#f44" if is_valid else "#555"
 final_signal = side if is_valid else "NEUTRAL"
 final_leverage = f"USE {lev_val} LEVERAGE" if is_valid else "WAITING FOR CONSENSUS"
 
@@ -65,12 +65,12 @@ mcols = st.columns(8)
 for i, judge in enumerate(judge_data):
     mcols[i].markdown(f"<div style='border:1px solid {judge['clr']}; border-radius:5px; padding:10px; text-align:center;'><b>{judge['tf']}</b><br>{judge['sig']}</div>", unsafe_allow_html=True)
 
-# 7. THE FIXED GLOBAL BIAS BOX
+# 7. THE FIXED GLOBAL BIAS BOX (THE ULTIMATE RENDERING FIX)
 st.markdown("---")
 st.markdown(
     f"""
     <div style="background-color: #1e2129; border: 5px solid {box_color}; border-radius: 15px; padding: 50px; text-align: center;">
-        <p style="color: #888; margin: 0; font-size: 20px;">SREEJAN INTELLIGENCE CONSENSUS</p>
+        <p style="color: #888; margin: 0; font-size: 20px; letter-spacing: 1px;">SREEJAN INTELLIGENCE CONSENSUS</p>
         <h1 style="color: white; font-size: 70px; margin: 15px 0; font-weight: bold;">
             GLOBAL BIAS: <span style="color: {box_color};">{final_signal}</span>
         </h1>
