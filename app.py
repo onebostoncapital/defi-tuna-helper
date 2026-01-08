@@ -6,44 +6,50 @@ from email.mime.text import MIMEText
 from streamlit_autorefresh import st_autorefresh
 from data_engine import fetch_base_data
 
-# --- DRIFT & SOLANA LIBRARIES ---
+# --- DRIFT INTEGRATION ---
 from solders.keypair import Keypair
 from driftpy.drift_client import DriftClient
 from driftpy.constants.numeric_constants import BASE_PRECISION
 from driftpy.types import OrderType, MarketType, OrderParams, PositionDirection
 from anchorpy import Wallet
 
-# 1. PAGE SETUP & HEARTBEAT
+# 1. PAGE CONFIG & PERSISTENCE
 st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
-st_autorefresh(interval=1000, key="ui_counter")
+st_autorefresh(interval=1000, key="ui_pulse") # 1s UI update for timer
 
 if 'last_market_update' not in st.session_state: st.session_state.last_market_update = time.time()
 if 'chart_tf' not in st.session_state: st.session_state.chart_tf = "1h"
+if 'last_trade_time' not in st.session_state: st.session_state.last_trade_time = 0
 if 'trade_history' not in st.session_state: st.session_state.trade_history = []
 
-# 2. SIDEBAR CREDENTIALS
+# 2. SIDEBAR & DRIFT SETTINGS
 with st.sidebar:
     st.header("🔐 Sentinel Config")
     rpc_url = st.text_input("Solana RPC URL", value="https://api.mainnet-beta.solana.com")
-    private_key_base58 = st.text_input("Private Key (Base58)", type="password")
+    pk_base58 = st.text_input("Private Key (Base58)", type="password")
     sub_id = st.number_input("Drift Sub-Account ID", value=0)
+    
     st.markdown("---")
     sender = st.text_input("Gmail", value="sreejan@onebostoncapital.com")
-    pwd = st.text_input("App Password", type="password")
+    gmail_pwd = st.text_input("App Password", type="password")
     total_cap = st.number_input("Drift Equity ($)", value=1000.0)
     auto_pilot = st.toggle("🚀 ENABLE AUTO-PILOT")
     
+    # Live Countdown Timer
     elapsed = time.time() - st.session_state.last_market_update
     time_to_refresh = max(0, int(30 - elapsed))
-    st.write(f"⏱️ Syncing in: {time_to_refresh}s")
+    st.subheader(f"⏱️ Syncing in: {time_to_refresh}s")
+    st.progress(time_to_refresh / 30)
 
+# Auto-refresh data logic
 if time_to_refresh <= 0:
     st.session_state.last_market_update = time.time()
     st.cache_data.clear()
     st.rerun()
 
-# 3. 8-JUDGE CONSENSUS MATRIX
+# 3. CONSENSUS JUDGE MATRIX (8-JUDGES)
 df, btc_p, err, status = fetch_base_data(st.session_state.chart_tf)
+
 if status:
     price = df['close'].iloc[-1]
     c1, c2, c3 = st.columns(3)
@@ -70,62 +76,71 @@ if status:
             
             mcols[i].markdown(f"<div style='border:1px solid {clr}; border-radius:5px; padding:10px; background-color:{bg_c}; text-align:center;'><b>{t}</b><br><span style='color:{clr};'>{sig}</span></div>", unsafe_allow_html=True)
 
+    # TIERED LEVERAGE LOGIC
     tr_count = max(tr_longs, tr_shorts)
     lev_map = {4: 2, 5: 3, 6: 4, 7: 5, 8: 5}
     cur_lev = lev_map.get(tr_count, 0) if tr_count >= 4 else 0
     c3.metric("Execution Judge", f"{tr_count}/8 Align", f"{cur_lev}x Leverage" if cur_lev > 0 else "WAIT")
 
-    # 4. CHART WITH INDICATORS
-    fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="Price")])
+    # 4. CHART WITH 20 EMA & 200 SMA
+    fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="SOL")])
     fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6", width=2)))
     fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", width=2, dash='dot')))
     fig.update_layout(template="plotly_dark", height=450, xaxis_rangeslider_visible=False, margin=dict(l=0, r=0, t=0, b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # 5. DRIFT EXECUTION ENGINE
-    async def run_drift_trade(side, leverage):
-        if not private_key_base58:
-            st.error("Private Key Required for Drift execution.")
-            return None
+    # 5. EXECUTION FUNCTIONS
+    async def place_order(side, leverage):
+        if not pk_base58: return None
         try:
-            kp = Keypair.from_base58_string(private_key_base58)
+            kp = Keypair.from_base58_string(pk_base58)
             wallet = Wallet(kp)
             client = DriftClient(rpc_url, wallet, account_subscription="polling")
             
-            # 5% Capital Calculation
             usd_size = total_cap * 0.05 * leverage
             sol_amount = int((usd_size / price) * BASE_PRECISION)
             
             direction = PositionDirection.Long() if side == "LONG" else PositionDirection.Short()
             params = OrderParams(order_type=OrderType.Market(), market_index=0, direction=direction, base_asset_amount=sol_amount)
             
-            st.info(f"Broadcasting {side} order to Solana...")
             sig = await client.place_perp_order(params, sub_account_id=sub_id)
             return sig
         except Exception as e:
             st.error(f"Drift Error: {str(e)}")
             return None
 
-    def send_alert_email(side, lev, consensus):
+    def send_email(side, lev, consensus):
         try:
-            content = f"SENTINEL DISPATCH\nSide: {side}\nLev: {lev}x\nConsensus: {consensus}/8\nCapital: 5% (${total_cap*0.05})"
-            msg = MIMEText(content); msg['Subject'] = f"🛡️ {side} Trade Logged"; msg['From'] = sender; msg['To'] = sender
+            body = f"SENTINEL DISPATCH\nSide: {side}\nLev: {lev}x\nConsensus: {consensus}/8\nAmt: 5% (${total_cap*0.05})"
+            msg = MIMEText(body); msg['Subject'] = f"🛡️ Trade: {side}"; msg['From'] = sender; msg['To'] = sender
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as s:
-                s.login(sender, pwd); s.send_message(msg)
+                s.login(sender, gmail_pwd); s.send_message(msg)
             return True
         except: return False
 
-    # 6. TRIGGER LOGIC
+    # 6. TRIGGER GATEWAY (AUTO & MANUAL)
     if cur_lev > 0:
         side = "LONG" if tr_longs >= 4 else "SHORT"
         
-        if st.button(f"🚀 Execute {side} ({cur_lev}x) on Drift"):
-            tx_sig = asyncio.run(run_drift_trade(side, cur_lev))
-            if tx_sig:
-                send_alert_email(side, cur_lev, tr_count)
-                st.session_state.trade_history.append({"Time": time.strftime("%H:%M:%S"), "Side": side, "Lev": f"{cur_lev}x", "TX": str(tx_sig)[:10]})
-                st.success(f"Trade successful! Transaction: {tx_sig}")
+        # AUTO-PILOT EXECUTION
+        if auto_pilot and (time.time() - st.session_state.last_trade_time > 300):
+            tx = asyncio.run(place_order(side, cur_lev))
+            if tx:
+                st.session_state.last_trade_time = time.time()
+                send_email(side, cur_lev, tr_count)
+                st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Side": side, "Lev": cur_lev, "Mode": "AUTO"})
+                st.toast(f"🚀 AUTO-TRADE: {side} {cur_lev}x placed on Drift!")
+
+        # MANUAL BUTTON
+        if st.button(f"🚀 Manual: {side} ({cur_lev}x)"):
+            tx = asyncio.run(place_order(side, cur_lev))
+            if tx:
+                send_email(side, cur_lev, tr_count)
+                st.session_state.trade_history.append({"Time": time.strftime("%H:%M"), "Side": side, "Lev": cur_lev, "Mode": "MANUAL"})
+                st.success(f"Trade Success: {tx}")
 
     if st.session_state.trade_history:
-        st.write("### 📜 Recent Live Entries")
+        st.write("### 📜 Live Trade Logs")
         st.table(pd.DataFrame(st.session_state.trade_history).tail(5))
+else:
+    st.error(f"Data Connection Error: {err}")
