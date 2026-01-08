@@ -3,7 +3,7 @@ import pandas as pd
 
 def fetch_base_data(interval="1h"):
     try:
-        # Standardize for yfinance limitations
+        # Standardize for yfinance limitations (12h is not native)
         y_interval = "1h" if interval == "12h" else interval
         period_map = {"1m":"1d","5m":"1d","15m":"3d","30m":"5d","1h":"7d","4h":"14d","1d":"60d"}
         
@@ -12,7 +12,7 @@ def fetch_base_data(interval="1h"):
         
         if df.empty: return None, 0, "No Data", False
 
-        # Virtual 12h Resampling
+        # Build 12h candles if needed
         if interval == "12h":
             df = df.resample('12h').agg({'Open':'first','High':'max','Low':'min','Close':'last'}).dropna()
 
@@ -20,7 +20,7 @@ def fetch_base_data(interval="1h"):
         df.columns = [str(c).lower() for c in df.columns]
         df.rename(columns={df.columns[0]: 'date'}, inplace=True)
 
-        # Logic: 20 EMA + 200 SMA
+        # Technical Indicators
         df['20_ema'] = df['close'].ewm(span=20, adjust=False).mean()
         df['200_sma'] = df['close'].rolling(window=200).mean()
         
