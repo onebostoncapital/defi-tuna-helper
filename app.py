@@ -9,10 +9,10 @@ import smtplib
 from email.mime.text import MIMEText
 from data_engine import fetch_base_data
 
-# 1. CORE IDENTITY & STYLE (Rule 14 & Rule 5)
+# 1. CORE IDENTITY & STYLE
 st.set_page_config(page_title="Sreejan Perp Sentinel Pro", layout="wide")
 
-# Persistent Settings Vault (Master Lock - Rule 15)
+# Persistent Settings Vault (Master Lock)
 if 'perp_entry' not in st.session_state: st.session_state.perp_entry = 0.0
 if 'perp_tp' not in st.session_state: st.session_state.perp_tp = 0.0
 if 'perp_sl' not in st.session_state: st.session_state.perp_sl = 0.0
@@ -33,20 +33,31 @@ st.markdown(f"""
     @keyframes blinker {{ 50% {{ opacity: 0.5; }} }}
     .stButton>button {{ width: 100%; border-radius: 5px; height: 3em; background-color: #111; color: white; border: 1px solid #333; }}
     .stButton>button:hover {{ border-color: {accent}; color: {accent}; }}
+    .guide-box {{ padding: 15px; border-radius: 10px; background: #1a1a1a; border-left: 5px solid {accent}; margin-bottom: 20px; }}
 </style>
 """, unsafe_allow_html=True)
 
-# 2. EMAIL SENTINEL LOGIC (Rule 22: The Secret Mailbox)
+# 2. EMAIL SENTINEL LOGIC
 with st.expander("🔐 Email Sentinel Setup (Gmail Only)"):
     sender_email = st.text_input("Your Gmail Address", placeholder="example@gmail.com")
     app_password = st.text_input("16-Digit App Password", type="password")
     if st.button("Save & Test Connection"):
-        st.success("Connection Settings Saved!")
+        try:
+            msg = MIMEText("Testing the Magic Robot Guard! Your Battle Alerts are now active.")
+            msg['Subject'] = "✅ Robot Guard Test"
+            msg['From'] = sender_email
+            msg['To'] = sender_email
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                server.login(sender_email, app_password)
+                server.send_message(msg)
+            st.success("Connection Settings Saved! Check your inbox.")
+        except Exception as e:
+            st.error(f"Error: {e}")
 
 def send_battle_alert(tf, direction, price):
     if sender_email and app_password:
         try:
-            msg = MIMEText(f"🚨 STRATEGY ALERT!\n\nSignal: {direction}\nTimeframe: {tf}\nPrice: ${price:,.2f}\n\nYour Magic Robot Guard has detected a strong alignment!")
+            msg = MIMEText(f"🚨 STRATEGY ALERT!\n\nSignal: {direction}\nTimeframe: {tf}\nPrice: ${price:,.2f}")
             msg['Subject'] = f"🔥 {direction} Signal on {tf}"
             msg['From'] = sender_email
             msg['To'] = sender_email
@@ -57,9 +68,8 @@ def send_battle_alert(tf, direction, price):
         except: return False
     return False
 
-# 3. ALARM ENGINE (Rule: Loud Alarm + 5x Popups)
+# 3. ALARM ENGINE
 def trigger_alarm(tf_desc, direction, price):
-    # Only send email once per signal event to avoid spam
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
     if st.session_state.last_alert_time != current_time:
         send_battle_alert(tf_desc, direction, price)
@@ -70,13 +80,13 @@ def trigger_alarm(tf_desc, direction, price):
     var audio = new Audio('https://actions.google.com/sounds/v1/alarms/emergency_siren.ogg');
     audio.play();
     for (let i = 0; i < 5; i++) {{
-        setTimeout(() => {{ alert("🚨 EMMANUEL SIGNAL: STRONG CONVICTION on {tf_desc}!"); }}, i * 1500);
+        setTimeout(() => {{ alert("🚨 EMMANUEL SIGNAL: {direction} on {tf_desc}!"); }}, i * 1500);
     }}
     </script>
     """
     components.html(alarm_js, height=0)
 
-# 4. INTERACTIVE TIMEFRAME NAVIGATION
+# 4. NAVIGATION BUTTONS
 st.title("🛡️ Sreejan Perp Forecaster Sentinel")
 tfs = ["1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d"]
 nav_cols = st.columns(len(tfs))
@@ -84,28 +94,33 @@ for i, tf_option in enumerate(tfs):
     if nav_cols[i].button(tf_option, key=f"btn_{tf_option}"):
         st.session_state.chart_tf = tf_option
 
-# 5. PRIMARY DATA FETCH
+# 5. DATA FETCH
 try:
     df, btc_p, _, status = fetch_base_data(st.session_state.chart_tf)
-except Exception as e:
-    st.error("Connecting to Market Data...")
+except:
     status = False
 
 if status:
     price = df['close'].iloc[-1]
     
-    # Init Sliders if Empty (Master Lock)
-    if st.session_state.perp_entry == 0.0: st.session_state.perp_entry = float(price)
-    if st.session_state.perp_tp == 0.0: st.session_state.perp_tp = float(price * 1.05)
-    if st.session_state.perp_sl == 0.0: st.session_state.perp_sl = float(price * 0.98)
-
     # 6. HEADER METRICS
     c1, c2, c3 = st.columns(3)
     c1.metric("₿ BTC", f"${btc_p:,.2f}")
     c2.metric(f"S SOL ({st.session_state.chart_tf})", f"${price:,.2f}")
 
-    # 7. DYNAMIC MTF RADAR DISPLAY (Rule: Background Scanning)
+    # 7. STRATEGY GUIDE (New Section)
     st.markdown("---")
+    with st.expander("📖 How to Read the Strongest Signals", expanded=True):
+        st.markdown(f"""
+        <div class="guide-box">
+        <strong>Look for Alignment:</strong> This is when the judges (timeframes) agree with each other. <br><br>
+        ⚪ <strong>Low Conviction (1-3 Greens/Reds):</strong> The judges are arguing. It is risky to trade here. <br>
+        🟡 <strong>Moderate Conviction (4-5 Greens/Reds):</strong> Most judges agree. The trend is waking up. <br>
+        🔥 <strong>Strong Conviction (6-8 Greens/Reds):</strong> <strong>This is the Power Signal!</strong> The Siren will scream and an Email will fly to your phone.
+        </div>
+        """, unsafe_allow_html=True)
+
+    # 8. MTF RADAR
     st.subheader("🔭 Multi-Timeframe Radar")
     mcols = st.columns(8)
     longs, shorts = 0, 0
@@ -118,9 +133,8 @@ if status:
                 elif p_m < s200 and p_m < e20: sig, color, shorts = "🔴 SHORT", "#ff4b4b", shorts + 1
                 else: sig, color = "🟡 WAIT", "#888"
                 mcols[i].markdown(f"**{t}**\n\n<span style='color:{color};'>{sig}</span>", unsafe_allow_html=True)
-        except: mcols[i].markdown(f"**{t}**\n\n<span style='color:orange;'>SCAN...</span>", unsafe_allow_html=True)
+        except: pass
 
-    # 8. CONVICTION & AUTOMATIC ALARM
     conviction = "STRONG" if (longs >= 6 or shorts >= 6) else "MODERATE"
     c3.metric("Consensus", f"{max(longs, shorts)}/8 Alignment", conviction)
     
@@ -128,16 +142,14 @@ if status:
         dir_text = "LONG" if longs >= 6 else "SHORT"
         trigger_alarm(st.session_state.chart_tf, dir_text, price)
 
-    st.markdown("---")
-
-    # 9. INTERACTIVE PLOTLY CHART
-    fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="SOL")])
+    # 9. CHART
+    fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'])])
     fig.add_trace(go.Scatter(x=df['date'], y=df['20_ema'], name="20 EMA", line=dict(color="#854CE6", width=2)))
     fig.add_trace(go.Scatter(x=df['date'], y=df['200_sma'], name="200 SMA", line=dict(color="#FF9900", dash='dot', width=2)))
-    fig.update_layout(template="plotly_dark" if theme=="Dark Mode" else "plotly_white", paper_bgcolor=bg, plot_bgcolor=bg, height=500, xaxis=dict(rangeslider=dict(visible=False), type="date"), yaxis=dict(fixedrange=False), hovermode="x unified")
+    fig.update_layout(template="plotly_dark" if theme=="Dark Mode" else "plotly_white", paper_bgcolor=bg, plot_bgcolor=bg, height=500, xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
-    # 10. MANUAL WAR ROOM (Rule 11/14/15 - Master Lock)
+    # 10. WAR ROOM (Master Lock)
     st.markdown(f'<div class="signal-card {"alarm-active" if conviction=="STRONG" else ""}">', unsafe_allow_html=True)
     st.subheader("✍️ War Room: Manual Entry & Safety Soul")
     lev = st.sidebar.slider("Leverage", 1.0, 50.0, 5.0)
@@ -154,7 +166,6 @@ if status:
         m_sl = st.slider("Manual SL", float(price*0.5), float(price*1.5), value=st.session_state.perp_sl, key="p_sl")
         st.session_state.perp_sl = m_sl
 
-    net_pnl = (((m_tp - m_entry) / m_entry) * lev * cap) - (cap * 0.0003 * 3)
     liq_p = price * (1 - (1/lev)*0.45) if longs >= shorts else price * (1 + (1/lev)*0.45)
-    st.markdown(f"**Net Profit Target:** ${net_pnl:,.2f} | **Liquidation Safety Floor:** ${liq_p:,.2f}")
+    st.markdown(f"**Liquidation Safety Floor:** ${liq_p:,.2f}")
     st.markdown('</div>', unsafe_allow_html=True)
