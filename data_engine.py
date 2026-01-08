@@ -4,14 +4,15 @@ import pandas as pd
 def fetch_base_data(interval="1h"):
     try:
         y_interval = "1h" if interval == "12h" else interval
-        # Optimized periods to prevent Yahoo Finance rate-limiting
+        # Use slightly larger periods to ensure technical indicators have enough history
         period_map = {"1m":"1d", "5m":"1d", "15m":"2d", "30m":"2d", "1h":"7d", "4h":"14d", "1d":"60d"}
         
         sol = yf.Ticker("SOL-USD")
         df = sol.history(period=period_map.get(y_interval, "7d"), interval=y_interval)
         
+        # Check if data is actually present
         if df is None or df.empty or len(df) < 20: 
-            return None, 0, "Insufficient Data", False
+            return None, 0, "No Data", False
 
         if interval == "12h":
             df = df.resample('12h').agg({'Open':'first','High':'max','Low':'min','Close':'last'}).dropna()
