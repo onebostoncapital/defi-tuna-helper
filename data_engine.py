@@ -2,7 +2,7 @@ import pandas as pd
 import yfinance as yf
 
 def fetch_base_data(interval="1h", symbol="SOL-USD"):
-    """Stable engine to prevent Binance blocks and installation errors."""
+    """Stable Universal Engine for 24/7 Cloud Uptime."""
     tf_map = {
         "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", 
         "1h": "1h", "4h": "1h", "12h": "1d", "1d": "1d"
@@ -16,7 +16,7 @@ def fetch_base_data(interval="1h", symbol="SOL-USD"):
         period = "7d" if y_tf in ["1m", "5m", "15m", "30m"] else "60d"
         sol_df = yf.download(tickers="SOL-USD", period=period, interval=y_tf, progress=False)
         
-        if sol_df.empty: return None, btc_p, "Market Data Offline", False
+        if sol_df.empty: return None, btc_p, "Data Offline", False
 
         df = sol_df.copy()
         df.columns = [col[0].lower() if isinstance(col, tuple) else col.lower() for col in df.columns]
